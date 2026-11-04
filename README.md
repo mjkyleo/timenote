@@ -85,15 +85,25 @@ flutter test      # 62 tests passed
 
 > 提示音在 widget 测试里固定关闭：audioplayers 6 需要「资源 → 临时文件」的真实 IO，在 fake-async 区无法等待。因此「彩蛋先于提示音上屏」目前只有源码结构保证，未自动化覆盖（详见 [REVIEW.md](./REVIEW.md) 第五节）。
 
-## 🤖 云端构建 APK（GitHub Actions）
+## 🤖 云端构建可安装包（GitHub Actions）
 
-推送 main 分支或手动触发即可在云端自动构建 Debug APK（`pub get` → `analyze` → `test` → `build apk --debug`），产物在 Actions 的 Artifacts 中下载：
+推送 main 或手动触发都会跑 `pub get` → `analyze` → `test` → `build apk`，产物有两个去处：
+
+| 平台 | 能不能装 | 在哪拿 |
+| --- | --- | --- |
+| **Android 平板** | ✅ 可直接安装 | Release 页的 `dev-build` 预发布（公开直链，免登录、不过期）：`app-arm64-v8a-release.apk`（平板优先）、`app-armeabi-v7a-release.apk`、`app-release.apk`（通用包）；另附 `apk-sha256.txt` 校验和 |
+| Android（同批产物） | ✅ | 每次 run 的 Artifacts `timenote-release-apk`（要登录 GitHub，默认保留 90 天） |
+| **iPad** | ❌ 装不上真机 | 只在手动触发勾选 `ios` 时构建（`flutter build ios --no-codesign`），产物是未签名 `Runner.app.zip`。要能装必须在仓库 secrets 里放 Apple 签名凭据，走 Xcode 签好再上 TestFlight/Ad Hoc |
+| **华为鸿蒙平板** | ❌ 当前构建不了 | 仓库里没有 `ohos/` 工程目录，且需要华为 Flutter-OH SDK + DevEco 工具链，GitHub 的 Runner 装不到 |
 
 ```bash
-git push origin main
+git push origin main   # 云端构建完自动覆盖 dev-build 预发布的附件
 ```
 
-> 说明：应用图标 PNG 与 `gradle-wrapper.jar` 是二进制且未纳入版本库，workflow 会在云端生成/下载；提示音 `alert.wav` 已经在仓库里。
+- APK 用 **debug keystore 签名**（`android/app/build.gradle.kts` 的 release 构建沿用 debug 签名配置）：允许「未知来源应用」后点开即装，可自用与分发测试，但**不能上传 Google Play**。
+- 应用图标 PNG 与 `gradle-wrapper.jar` 是二进制且未纳入版本库，workflow 会在云端生成/下载；提示音 `alert.wav` 已经在仓库里。
+- `dev-build` 这个 tag 由 CI 自己创建并复用，每次推 main 覆盖同名附件，所以永远只有一个「最新开发版」，不会攒一堆 release。
+- 上述 workflow 改动**尚未经一次真实的 Actions 运行验证**（本机没有 `gh` CLI，无法在推送前查 run 状态）。
 
 ## 🖼 界面风格（11 套整屏令牌）
 
