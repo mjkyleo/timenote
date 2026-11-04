@@ -1,0 +1,214 @@
+import 'dart:io';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:timenote/core/providers/app_providers.dart';
+import 'package:timenote/core/providers/clock_providers.dart';
+import 'package:timenote/core/storage_service.dart';
+import 'package:timenote/main.dart';
+import 'package:timenote/settings/enum_def.dart';
+import 'package:timenote/settings/settings_page.dart';
+import 'package:timenote/theme/ui_style.dart';
+
+import 'support/fake_storage.dart';
+import 'support/fake_wakelock.dart';
+
+void main() {
+  group('令牌表完整性', () {
+    test('每个界面风格都有亮/暗两版', () {
+      for (final s in UiStyle.values) {
+        final spec = uiStyleSpecs[s];
+        expect(spec, isNotNull, reason: '$s 缺少令牌定义');
+        expect(spec!.$1.bg, isNot(spec.$2.bg), reason: '$s 亮暗两版底色相同');
+        expect(spec.$1.fg, isNot(spec.$2.fg), reason: '$s 亮暗两版前景相同');
+        // 亮版必须真的更亮：这条能抓住注册表里 (亮, 暗) 写反的风格
+        expect(spec.$1.bg.computeLuminance(),
+            greaterThan(spec.$2.bg.computeLuminance()),
+            reason: '$s 的亮版底色比暗版还暗，八成是两版写反了');
+      }
+    });
+
+    test('每套令牌的前景都能从底色里跳出来', () {
+      for (final entry in uiStyleSpecs.entries) {
+        for (final tokens in [entry.value.$1, entry.value.$2]) {
+          // 相对亮度差，不是 WCAG 对比率：只用来挡「fg 和 bg 撞色」
+          final contrast =
+              (tokens.fg.computeLuminance() - tokens.bg.computeLuminance())
+                  .abs();
+          expect(contrast, greaterThan(0.45),
+              reason: '${entry.key} 的 fg/bg 对比过低（$contrast）');
+        }
+      }
+    });
+
+    test('classic 不加任何底板装饰，其余风格至少加一种', () {
+      for (final isDark in [false, true]) {
+        expect(uiTokensFor(UiStyle.classic, isDark).hasPlateDecor, isFalse,
+            reason: 'classic 必须与引入令牌层之前的渲染路径一致');
+      }
+      for (final s in UiStyle.values.where((e) => e != UiStyle.classic)) {
+        expect(uiTokensFor(s, false).hasPlateDecor || uiTokensFor(s, true).hasPlateDecor,
+            isTrue,
+            reason: '$s 声称换了环境却没有任何底板装饰');
+      }
+    });
+
+    test('除 classic 外每套都写明取色出处', () {
+      for (final s in UiStyle.values.where((e) => e != UiStyle.classic)) {
+        final p = uiTokensFor(s, false).provenance;
+        expect(p, isNotEmpty, reason: '$s 没标 token 来源');
+        expect(p.contains('page:') || p.contains('derived:'), isTrue,
+            reason: '$s 的出处需要区分页面原值与推导值');
+      }
+    });
+
+    testWidgets('未注入 UiScope 时按 Theme.brightness 回落到 classic',
+        (tester) async {
+      late UiTokens captured;
+      await tester.pumpWidget(MaterialApp(
+        theme: ThemeData(brightness: Brightness.light),
+        home: Builder(
+          builder: (context) {
+            captured = UiScope.of(context);
+            return const SizedBox.shrink();
+          },
+        ),
+      ));
+      // 独立挂载、没有 UiScope 的控件不该拿到暗色令牌
+      expect(captured.bg, uiTokensFor(UiStyle.classic, false).bg);
+    });
+  });
+
+  group('风格真的画到界面上', () {
+    late ProviderContainer container;
+
+    ProviderContainer newContainer() => ProviderContainer(
+          overrides: [
+            // 冻结时间源：秒数不自己跳，翻页动画才不会同时挂着两份数字底板
+            clockSourceProvider.overrideWithValue(
+              () => DateTime(2026, 11, 4, 10, 0, 0),
+            ),
+          ],
+        );
+
+    setUp(() async {
+      installFakeWakelock();
+      await useMemoryStorage();
+      await StorageService.writeSettings({'soundEnable': false});
+      container = newContainer();
+    });
+
+    tearDown(() async {
+      container.dispose();
+      await releaseMemoryStorage();
+    });
+
+    Future<void> pumpApp(WidgetTester tester) async {
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const TimeNoteApp(),
+        ),
+      );
+      for (var i = 0; i < 3; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+    }
+
+    Future<void> pick(WidgetTester tester, UiStyle style, ThemeBase base) async {
+      await container.read(appSettingsNotifierProvider.notifier).update(
+          container
+              .read(appSettingsNotifierProvider)
+              .copyWith(uiStyle: style, themeBase: base));
+      await pumpApp(tester);
+    }
+
+    testWidgets('选风格后主屏底色真的换成该风格的 bg', (tester) async {
+      await pumpApp(tester);
+      final scaffoldBefore = tester.widget<Scaffold>(find.byType(Scaffold).first);
+      expect(scaffoldBefore.backgroundColor,
+          uiTokensFor(UiStyle.classic, true).bg);
+
+      await pick(tester, UiStyle.neumorphism, ThemeBase.dark);
+      final scaffold = tester.widget<Scaffold>(find.byType(Scaffold).first);
+      expect(scaffold.backgroundColor, const Color(0xFF23272E),
+          reason: '切到软胶拟物后主屏底色应换成暗版 bg，而不是仍跟着黑白底走');
+    });
+
+    testWidgets('带阴影的风格真的把阴影画到了数字底板上', (tester) async {
+      await pick(tester, UiStyle.neumorphism, ThemeBase.light);
+      final plate = tester
+          .widget<Container>(find.byKey(const Key('flip-plate')))
+          .decoration! as BoxDecoration;
+      expect(plate.boxShadow, hasLength(2), reason: '软胶是一暗一亮双影');
+      expect(plate.color, const Color(0xFFE0E5EC));
+
+      await pick(tester, UiStyle.classic, ThemeBase.dark);
+      expect(find.byKey(const Key('flip-plate')), findsNothing,
+          reason: 'classic + 无底板数字样式不应出现装饰节点');
+    });
+
+    testWidgets('11 套风格 × 黑白底色全矩阵冒烟：主屏/抽屉/设置都不报错',
+        (tester) async {
+      await pumpApp(tester);
+      for (final style in UiStyle.values) {
+        for (final base in ThemeBase.values) {
+          await pick(tester, style, base);
+          expect(tester.takeException(), isNull,
+              reason: '$style / $base 主屏渲染异常');
+
+          await tester.tap(find.byIcon(Icons.menu));
+          for (var i = 0; i < 8; i++) {
+            await tester.pump(const Duration(milliseconds: 60));
+          }
+          expect(find.byType(Drawer), findsOneWidget,
+              reason: '$style / $base 抽屉没开出来');
+          expect(tester.takeException(), isNull,
+              reason: '$style / $base 抽屉渲染异常');
+          // 关掉抽屉再进设置
+          tester.state<ScaffoldState>(find.byType(Scaffold).first)
+              .closeEndDrawer();
+          for (var i = 0; i < 6; i++) {
+            await tester.pump(const Duration(milliseconds: 60));
+          }
+
+          await tester.tap(find.byIcon(Icons.settings));
+          for (var i = 0; i < 10; i++) {
+            await tester.pump(const Duration(milliseconds: 60));
+          }
+          expect(find.byType(SettingsPage), findsOneWidget,
+              reason: '$style / $base 设置页没打开');
+          expect(tester.takeException(), isNull,
+              reason: '$style / $base 设置页渲染异常');
+
+          await tester.pageBack();
+          for (var i = 0; i < 10; i++) {
+            await tester.pump(const Duration(milliseconds: 60));
+          }
+          expect(find.byType(SettingsPage), findsNothing);
+        }
+      }
+    });
+
+    testWidgets('选中的风格写进设置库，重启后读回', (tester) async {
+      await pick(tester, UiStyle.retroVintage, ThemeBase.light);
+      expect(StorageService.getSetting('uiStyle', ''), 'retroVintage');
+      container.dispose();
+
+      container = newContainer();
+      await pumpApp(tester);
+      expect(container.read(appSettingsNotifierProvider).uiStyle,
+          UiStyle.retroVintage);
+      expect(tester.widget<Scaffold>(find.byType(Scaffold).first).backgroundColor,
+          const Color(0xFFF5E6D3));
+    });
+  });
+
+  test('quotes 之外的资源声明没有被这次改动破坏', () {
+    // pubspec 声明的资产必须真实存在，否则 CI 的 asset bundle 会失败
+    final pubspec = File('pubspec.yaml').readAsStringSync();
+    expect(pubspec.contains('assets/audio/alert.wav'), isTrue);
+    expect(File('assets/audio/alert.wav').existsSync(), isTrue);
+  });
+}

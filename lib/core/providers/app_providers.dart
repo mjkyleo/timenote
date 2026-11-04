@@ -5,6 +5,7 @@ import '../../settings/enum_def.dart';
 /// 应用设置状态
 class AppSettingsState {
   final ThemeBase themeBase;
+  final UiStyle uiStyle;
   final FlipAnimStyle flipAnimStyle;
   final ClockVisualStyle clockVisualStyle;
   final AnimSpeed animSpeed;
@@ -14,6 +15,7 @@ class AppSettingsState {
 
   AppSettingsState({
     required this.themeBase,
+    required this.uiStyle,
     required this.flipAnimStyle,
     required this.clockVisualStyle,
     required this.animSpeed,
@@ -24,6 +26,7 @@ class AppSettingsState {
 
   AppSettingsState copyWith({
     ThemeBase? themeBase,
+    UiStyle? uiStyle,
     FlipAnimStyle? flipAnimStyle,
     ClockVisualStyle? clockVisualStyle,
     AnimSpeed? animSpeed,
@@ -33,6 +36,7 @@ class AppSettingsState {
   }) {
     return AppSettingsState(
       themeBase: themeBase ?? this.themeBase,
+      uiStyle: uiStyle ?? this.uiStyle,
       flipAnimStyle: flipAnimStyle ?? this.flipAnimStyle,
       clockVisualStyle: clockVisualStyle ?? this.clockVisualStyle,
       animSpeed: animSpeed ?? this.animSpeed,
@@ -53,6 +57,7 @@ class AppSettingsNotifier extends Notifier<AppSettingsState> {
   AppSettingsState build() {
     final themeRaw =
         StorageService.getSetting('themeBase', ThemeBase.dark.name);
+    final uiRaw = StorageService.getSetting('uiStyle', UiStyle.classic.name);
     final flipRaw =
         StorageService.getSetting('flipAnimStyle', FlipAnimStyle.flipCard.name);
     final visualRaw = StorageService.getSetting(
@@ -67,6 +72,10 @@ class AppSettingsNotifier extends Notifier<AppSettingsState> {
       themeBase: ThemeBase.values.firstWhere(
         (e) => e.name == themeRaw,
         orElse: () => ThemeBase.dark,
+      ),
+      uiStyle: UiStyle.values.firstWhere(
+        (e) => e.name == uiRaw,
+        orElse: () => UiStyle.classic,
       ),
       flipAnimStyle: FlipAnimStyle.values.firstWhere(
         (e) => e.name == flipRaw,
@@ -90,6 +99,7 @@ class AppSettingsNotifier extends Notifier<AppSettingsState> {
     state = newState;
     await StorageService.writeSettings({
       'themeBase': newState.themeBase.name,
+      'uiStyle': newState.uiStyle.name,
       'flipAnimStyle': newState.flipAnimStyle.name,
       'clockVisualStyle': newState.clockVisualStyle.name,
       'animSpeed': newState.animSpeed.name,

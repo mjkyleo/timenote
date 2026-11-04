@@ -10,6 +10,7 @@ import '../core/providers/app_providers.dart';
 import '../core/providers/clock_providers.dart';
 import '../settings/enum_def.dart';
 import '../settings/settings_page.dart';
+import '../theme/ui_style.dart';
 import '../todo/todo_drawer.dart';
 import '../egg/egg_display.dart';
 import 'clock_controller.dart';
@@ -32,6 +33,7 @@ class _ClockViewState extends ConsumerState<ClockView> {
   Timer? _eggTimer;
   Timer? _chromeTimer;
   AudioPlayer? _alarm;
+  late final DateTime Function() _clockSource = ref.read(clockSourceProvider);
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   late final ProviderSubscription<ClockState> _clockSub;
   late final ProviderSubscription<bool> _wakelockSub;
@@ -145,64 +147,68 @@ class _ClockViewState extends ConsumerState<ClockView> {
     final appSetting = ref.watch(appSettingsNotifierProvider);
     final clockState = ref.watch(clockNotifierProvider);
     final notifier = ref.read(clockNotifierProvider.notifier);
-    final isDark = appSetting.themeBase == ThemeBase.dark;
-    final fg = isDark ? Colors.white : Colors.black;
+    final tokens = UiScope.maybeOf(context) ??
+        UiTokens.classic(appSetting.themeBase == ThemeBase.dark);
+    final fg = tokens.fg;
 
     return Listener(
       onPointerDown: (_) => _pokeChrome(),
       child: Scaffold(
         key: _scaffoldKey,
-        backgroundColor: isDark ? Colors.black : Colors.white,
+        backgroundColor: tokens.bg,
         endDrawer: const TodoDrawer(),
-        body: Stack(
-          fit: StackFit.expand,
-          children: [
-            Column(
-              children: [
-                Expanded(
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: _showEgg ? _hideEgg : null,
-                    child: _mainArea(appSetting, clockState),
+        body: UiLayer(
+          tokens: tokens,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              Column(
+                children: [
+                  Expanded(
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: _showEgg ? _hideEgg : null,
+                      child: _mainArea(appSetting, clockState),
+                    ),
                   ),
-                ),
-                if (clockState.workMode == ClockWorkMode.countdown)
-                  _progressBar(clockState, fg),
-                _controls(appSetting, clockState, notifier, fg),
-              ],
-            ),
-            Positioned(
-              top: 16,
-              right: 20,
-              child: AnimatedOpacity(
-                opacity: _chromeVisible ? 1 : 0,
-                duration: const Duration(milliseconds: 250),
-                child: IgnorePointer(
-                  ignoring: !_chromeVisible,
-                  child: SafeArea(
-                    child: Row(
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.settings, size: 28),
-                          color: fg,
-                          tooltip: '设置',
-                          onPressed: _openSettings,
-                        ),
-                        const SizedBox(width: 8),
-                        IconButton(
-                          icon: const Icon(Icons.menu, size: 28),
-                          color: fg,
-                          tooltip: '待办清单',
-                          onPressed: () =>
-                              _scaffoldKey.currentState?.openEndDrawer(),
-                        ),
-                      ],
+                  if (clockState.workMode == ClockWorkMode.countdown)
+                    _progressBar(clockState, tokens),
+                  _controls(appSetting, clockState, notifier, tokens),
+                ],
+              ),
+              Positioned(
+                top: 16,
+                right: 20,
+                child: AnimatedOpacity(
+                  opacity: _chromeVisible ? 1 : 0,
+                  duration: const Duration(milliseconds: 250),
+                  child: IgnorePointer(
+                    ignoring: !_chromeVisible,
+                    child: SafeArea(
+                      child: Row(
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.settings, size: 28),
+                            color: fg,
+                            tooltip: '设置',
+                            onPressed: _openSettings,
+                          ),
+                          const SizedBox(width: 8),
+                          IconButton(
+                            icon: const Icon(Icons.menu, size: 28),
+                            color: fg,
+                            tooltip: '待办清单',
+                            onPressed: () =>
+                                _scaffoldKey.currentState?.openEndDrawer(),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -217,6 +223,7 @@ class _ClockViewState extends ConsumerState<ClockView> {
     }
     final clock = clockState.workMode == ClockWorkMode.realtime
         ? ClockTimeDisplay(
+            now: _clockSource,
             animStyle: appSetting.flipAnimStyle,
             visualStyle: appSetting.clockVisualStyle,
             speed: appSetting.animSpeed,
@@ -235,16 +242,18 @@ class _ClockViewState extends ConsumerState<ClockView> {
     );
   }
 
-  Widget _progressBar(ClockState clockState, Color fg) {
+  Widget _progressBar(ClockState clockState, UiTokens tokens) {
+    final track = tokens.fg.withValues(alpha: 0.14);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 48),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(4),
+        // 复古印刷/编辑部这类直角风格把进度条也收成直角
+        borderRadius: BorderRadius.circular(tokens.chipRadius.clamp(0, 8).toDouble()),
         child: LinearProgressIndicator(
           value: clockState.progress,
           minHeight: 5,
-          backgroundColor: fg.withValues(alpha: 0.14),
-          color: fg,
+          backgroundColor: track,
+          color: tokens.accentSelection ? tokens.accent : tokens.fg,
         ),
       ),
     );
@@ -254,37 +263,37 @@ class _ClockViewState extends ConsumerState<ClockView> {
     AppSettingsState appSetting,
     ClockState clockState,
     ClockNotifier notifier,
-    Color fg,
+    UiTokens tokens,
   ) {
     final isCountdown = clockState.workMode == ClockWorkMode.countdown;
     final chips = <Widget>[
       for (final min in AppConstants.countdownPresets)
         _chip(
+          tokens: tokens,
           label: '$min 分',
           selected: isCountdown &&
               clockState.total == Duration(minutes: min) &&
               clockState.isRunning,
-          fg: fg,
           onTap: () => notifier.startCountdown(Duration(minutes: min)),
         ),
       _chip(
+        tokens: tokens,
         label: '自定义',
         selected: false,
-        fg: fg,
         icon: Icons.add_alarm,
         onTap: _askCustomCountdown,
       ),
       _chip(
+        tokens: tokens,
         label: '时钟',
         selected: !isCountdown,
-        fg: fg,
         onTap: notifier.switchRealtime,
       ),
       if (isCountdown)
         _chip(
+          tokens: tokens,
           label: clockState.isRunning ? '暂停' : '继续',
           selected: false,
-          fg: fg,
           icon: clockState.isRunning ? Icons.pause : Icons.play_arrow,
           onTap: clockState.isRunning
               ? notifier.pauseCountdown
@@ -292,9 +301,9 @@ class _ClockViewState extends ConsumerState<ClockView> {
         ),
       if (isCountdown)
         _chip(
+          tokens: tokens,
           label: '停止',
           selected: false,
-          fg: fg,
           icon: Icons.stop,
           onTap: notifier.stopCountdown,
         ),
@@ -315,22 +324,29 @@ class _ClockViewState extends ConsumerState<ClockView> {
   }
 
   Widget _chip({
+    required UiTokens tokens,
     required String label,
     required bool selected,
-    required Color fg,
     required VoidCallback onTap,
     IconData? icon,
   }) {
-    final border = selected ? fg : fg.withValues(alpha: 0.32);
+    final fg = tokens.fg;
+    final ink = tokens.accentSelection ? tokens.accent : fg;
+    final border = selected ? ink : fg.withValues(alpha: 0.32);
+    final shape = tokens.chipRadius >= 900
+        ? const StadiumBorder()
+        : RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(tokens.chipRadius));
     return ActionChip(
-      label: Text(label),
-      labelStyle: TextStyle(color: fg, fontWeight: selected ? FontWeight.w700 : FontWeight.w400),
-      avatar: icon == null
-          ? null
-          : Icon(icon, size: 18, color: fg),
-      backgroundColor: selected ? fg.withValues(alpha: 0.16) : Colors.transparent,
-      side: BorderSide(color: border),
-      shape: const StadiumBorder(),
+      label: Text(uiLabelText(tokens, label)),
+      labelStyle: TextStyle(
+          color: fg,
+          letterSpacing: tokens.labelTracking * 0.3,
+          fontWeight: selected ? FontWeight.w700 : FontWeight.w400),
+      avatar: icon == null ? null : Icon(icon, size: 18, color: fg),
+      backgroundColor: selected ? ink.withValues(alpha: 0.16) : Colors.transparent,
+      side: BorderSide(color: border, width: tokens.chipStrokeWidth),
+      shape: shape,
       onPressed: onTap,
     );
   }

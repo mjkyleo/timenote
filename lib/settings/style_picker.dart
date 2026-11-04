@@ -1,18 +1,22 @@
 import 'package:flutter/material.dart';
 import '../core/constants.dart';
 import '../flip_clock/flip_renderer.dart';
+import '../theme/ui_style.dart';
 import '../settings/enum_def.dart';
 
 /// 选项卡片（选中态高亮边框）
 ///
 /// [labelStyle] 传入某个数字样式的文字样式时，标签本身就用该样式渲染，
 /// 于是 10 种风格在选择阶段就已经可辨认。
+/// [swatch] 传入某套界面风格的令牌时，左侧画一块迷你底板，
+/// 让「背景 + 底板光影 + 强调色」在选择阶段就能直接比对，不必靠名字想象。
 Widget buildStyleItem(
   BuildContext context,
   String label,
   bool selected,
   VoidCallback onTap, {
   TextStyle? labelStyle,
+  UiTokens? swatch,
 }) {
   final theme = Theme.of(context);
   return Padding(
@@ -35,6 +39,10 @@ Widget buildStyleItem(
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (swatch != null) ...[
+              _UiSwatch(tokens: swatch),
+              const SizedBox(width: 8),
+            ],
             if (selected) ...[
               Icon(Icons.check, size: 16, color: theme.colorScheme.primary),
               const SizedBox(width: 6),
@@ -49,6 +57,58 @@ Widget buildStyleItem(
       ),
     ),
   );
+}
+
+/// 一枚 34×22 的迷你预览：底 + 数字底板 + 强调色点
+class _UiSwatch extends StatelessWidget {
+  final UiTokens tokens;
+
+  const _UiSwatch({required this.tokens});
+
+  @override
+  Widget build(BuildContext context) {
+    final gradient = tokens.bgGradient;
+    return Container(
+      width: 34,
+      height: 22,
+      decoration: BoxDecoration(
+        gradient: gradient != null && gradient.length >= 2
+            ? LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: gradient)
+            : null,
+        color: gradient != null && gradient.length >= 2 ? null : tokens.bg,
+        border: Border.all(color: tokens.muted.withValues(alpha: 0.5)),
+        borderRadius: BorderRadius.circular(3),
+      ),
+      child: Center(
+        child: Container(
+          width: 20,
+          height: 12,
+          decoration: BoxDecoration(
+            color: tokens.plateFill ??
+                tokens.fg.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(tokens.plateRadius ?? 2),
+            border: tokens.plateStroke == null
+                ? null
+                : Border.all(
+                    color: tokens.plateStroke!,
+                    width: tokens.plateStrokeWidth > 2 ? 1.5 : tokens.plateStrokeWidth),
+            // 阴影按 1/4 缩放，否则 16px 模糊在一枚小色块上会糊成一团
+            boxShadow: [
+              for (final s in tokens.plateShadow.take(2))
+                BoxShadow(
+                  color: s.color,
+                  offset: s.offset / 4,
+                  blurRadius: s.blurRadius / 4,
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 /// 供选择器使用的标签文字样式（比主屏字号小，描边按比例收细）

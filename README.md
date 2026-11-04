@@ -14,7 +14,10 @@
 - 🎞️ **5 种翻页动画**：经典机场翻牌 / 书页卷曲 / 滑动 / 分段碎裂 / 渐变溶解
 - 🔢 **10 种计时画面风格**：苹果极简 / 复古机械 / 软圆角 / 高对比窄版 / 手写文艺 / 粗黑力量 / 纤细思源 / 得意黑潮流 / 点阵 / 镂空描边
   - 风格差异由字重、字距、字号倍率、描边、底板、圆角、中缝、等宽数字等 10 个维度实现，**没打包字体也两两可辨**
-- ⚫⚪ 黑白两色底色切换
+- 🖼 **11 套整屏界面风格**：无装饰（原样）/ 编辑部 / 软胶拟物 / 便当格 / 自然有机 / 复古印刷 / 暗色分层 / 系统毛玻璃 / 超现实 / 哥特洛丽塔 / 视觉小说
+  - 分工：**界面风格管「环境」**（背景、数字底板的填充/描边/光影/圆角、标签字体与字距），**数字风格管「字形」**，两层正交、互不覆盖
+  - 每套自带亮/暗两版，跟随下面的黑白底色开关；取色逐条标注是参考页原值（`page:`）还是同族推导（`derived:`）
+- ⚫⚪ 黑白两色底色切换（同时选中当前界面风格的亮版或暗版）
 - 🚀 翻页速度三档：慢（900ms）/ 标准（450ms）/ 快（220ms）
 - ✅ **待办抽屉**：右上角汉堡唤起右侧抽屉，新增 / 勾选 / 删除 / 一键清除已完成，显示「未完成/总数」，Hive 本地持久化（乐观更新，落盘不阻塞 UI）
 - 💌 **倒计时彩蛋**：归零后时钟区域整体替换为随机文案（无弹窗），5 秒自动切回，点任意处立即返回；可开关，与提示音互不影响
@@ -38,6 +41,7 @@
 lib/
 ├── core/                  # 常量、存储封装、彩蛋文案服务、Provider（clock/app/todo）
 ├── flip_clock/            # 翻页时钟：动画渲染 + 外观表 + 主屏
+├── theme/                 # 界面风格令牌（11 套 × 亮/暗）+ UiScope/UiLayer 注入
 ├── todo/                  # 待办抽屉与单项
 ├── settings/              # 设置页、风格选择器
 ├── egg/                   # 倒计时彩蛋展示
@@ -48,6 +52,7 @@ assets/
 └── fonts/                 # 免费商用字体（按需放入）
 test/
 ├── app_widget_test.dart   # 主屏 / 抽屉 / 常亮 / 倒计时结束 / 设置（18 例）
+├── ui_style_test.dart     # 令牌完整性 + 风格真生效 + 11×2 全矩阵冒烟（10 例）
 ├── flip_rendering_test.dart # 动画静止态 + 风格可辨 + 自适应缩放（11 例）
 ├── clock_notifier_test.dart # 走时/暂停/继续/停止/生命周期（12 例，假时钟）
 ├── storage_service_test.dart # 真实磁盘落盘 + 脏数据容忍（3 例）
@@ -67,14 +72,14 @@ flutter run
 
 ```bash
 flutter analyze   # No issues found!
-flutter test      # 52 tests passed
+flutter test      # 62 tests passed
 ```
 
 三个可注入的测试缝让「测过」这件事真的成立：
 
 | 依赖 | 生产 | 测试 |
 | --- | --- | --- |
-| 时间 | `DateTime.now` | `clockSourceProvider` 覆盖 + `fakeAsync` |
+| 时间 | `DateTime.now` | `clockSourceProvider` 覆盖 + `fakeAsync`；实时时钟与倒计时共用这一个缝 |
 | 屏幕常亮 | wakelock_plus 平台通道 | `wakelockPlusPlatformInstance` 换 fake |
 | 存储 | Hive 磁盘后端 | widget 测试用 Hive 内存后端；真实落盘由普通 `test()` 覆盖 |
 
@@ -89,6 +94,29 @@ git push origin main
 ```
 
 > 说明：应用图标 PNG 与 `gradle-wrapper.jar` 是二进制且未纳入版本库，workflow 会在云端生成/下载；提示音 `alert.wav` 已经在仓库里。
+
+## 🖼 界面风格（11 套整屏令牌）
+
+参考 [luckymaomi/ui-styles](https://luckymaomi.github.io/ui/styles/) 的 10 套风格页移植而来，令牌集中在 `lib/theme/ui_style.dart`（`uiStyleSpecs`，每套 `(亮, 暗)` 两版）。
+
+| 设置里的名字 | 参考页 | 哪一版是页面原值 |
+| --- | --- | --- |
+| 无装饰（原样） | — | 两版都是引入令牌层之前的外观，回归基线 |
+| 编辑部 | [/editorial/](https://luckymaomi.github.io/ui/styles/editorial/) | 亮版（米白 + 墨黑 + 0 圆角细线，衬线大字距） |
+| 软胶拟物 | [/neumorphism/](https://luckymaomi.github.io/ui/styles/neumorphism/) | 亮版（`#e0e5ec` + 一暗一亮双影） |
+| 便当格 | [/bento-grid/](https://luckymaomi.github.io/ui/styles/bento-grid/) | 两版（`#fafafa` / `#18181b`，暗版卡片描边按 zinc 色阶推导） |
+| 自然有机 | [/natural-organic/](https://luckymaomi.github.io/ui/styles/natural-organic/) | 亮版（土色族 + 团块 + 颗粒） |
+| 复古印刷 | [/retro-vintage/](https://luckymaomi.github.io/ui/styles/retro-vintage/) | 亮版（`#f5e6d3` + 3px 线框 + 大写衬线） |
+| 暗色分层 | [/dark-mode/](https://luckymaomi.github.io/ui/styles/dark-mode/) | 暗版（slate 色阶 + 上缘内高光） |
+| 系统毛玻璃 | [/macos-vibrancy/](https://luckymaomi.github.io/ui/styles/macos-vibrancy/) | 暗版（`1c1c1e/2c2c2e/3a3a3c` 分层 + 1px 亮线） |
+| 超现实 | [/surrealism/](https://luckymaomi.github.io/ui/styles/surrealism/) | 两版（`#1a1a3e→#c38d94` 渐变 / `#f0ece4`） |
+| 哥特洛丽塔 | [/gothic-lolita/](https://luckymaomi.github.io/ui/styles/gothic-lolita/) | 暗版（黑紫渐变 + `#e5e5e5`） |
+| 视觉小说 | [/visual-novel/](https://luckymaomi.github.io/ui/styles/visual-novel/) | 亮版（天空四段渐变 + 白 70% 面板） |
+
+- 表里没有标出的那一版按「同族色阶反转」补齐，每条令牌的 `provenance` 字段用 `page:` / `derived:` 区分了来源，测试会检查这个标记非空。
+- **正交**：界面风格只换「环境」（背景、数字底板的填充/描边/光影/圆角、标签字体与字距），10 种数字风格仍决定「字形」；`无装饰（原样）` 下渲染路径与之前完全一致。
+- **性能**：颗粒/团块/花纹是静态 `CustomPaint` + `RepaintBoundary`，与每秒重建的时钟子树分离，随机数按固定种子生成，不逐帧重算。
+- **未验证**：本机无设备，11 套风格只做过 800×600 widget 测试的全矩阵冒烟（无异常、无溢出），真机观感与字体族（`serif`/`monospace` 在 Android/鸿蒙的映射）尚未实测。
 
 ## 🎨 字体（免费商用，放入 assets/fonts 并在 pubspec 声明）
 

@@ -21,8 +21,13 @@ class ClockTimeDisplay extends StatefulWidget {
   final AnimSpeed speed;
   final ThemeBase themeBase;
 
+  /// 时间源来自 clockSourceProvider，与倒计时共用同一个可注入 seam；
+  /// 直接读 DateTime.now() 会让测试跨到真实秒边界，翻页动画双份文本同时在场。
+  final DateTime Function() now;
+
   const ClockTimeDisplay({
     super.key,
+    required this.now,
     required this.animStyle,
     required this.visualStyle,
     required this.speed,
@@ -36,14 +41,13 @@ class ClockTimeDisplay extends StatefulWidget {
 class _ClockTimeDisplayState extends State<ClockTimeDisplay> {
   Timer? _align;
   Timer? _ticker;
-  DateTime _now = DateTime.now();
+  late DateTime _now = widget.now();
 
   @override
   void initState() {
     super.initState();
     // 先对齐到下一个整秒，再按秒周期刷新，避免多实例之间相位漂移
-    final msToNextSecond =
-        1000 - DateTime.now().millisecondsSinceEpoch % 1000;
+    final msToNextSecond = 1000 - _now.millisecondsSinceEpoch % 1000;
     _align = Timer(Duration(milliseconds: msToNextSecond), () {
       _tick();
       _ticker = Timer.periodic(const Duration(seconds: 1), (_) => _tick());
@@ -51,7 +55,7 @@ class _ClockTimeDisplayState extends State<ClockTimeDisplay> {
   }
 
   void _tick() {
-    final next = DateTime.now();
+    final next = widget.now();
     if (!mounted || next.second == _now.second) return;
     setState(() => _now = next);
   }

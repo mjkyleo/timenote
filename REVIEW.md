@@ -130,7 +130,7 @@
 ```bash
 export PATH="/d/dev/flutter/bin:$PATH"
 flutter analyze            # No issues found!
-flutter test               # +52: All tests passed!
+flutter test               # 第一轮收尾 +52；第二轮（界面风格）后 +62
 
 # 存量缺陷取证（相对 7abb6fd）
 git show 7abb6fd:lib/flip_clock/clock_view.dart | grep -n '\[n'
@@ -138,3 +138,39 @@ git show 7abb6fd:pubspec.yaml | sed -n '24,30p'
 git ls-tree -r 7abb6fd --name-only assets
 git show 7abb6fd:lib/core/providers/clock_providers.dart | grep -n -A8 'Timer.periodic'
 ```
+
+## 八、第二轮：11 套整屏「界面风格」
+
+需求是给 App 换肤，参考 https://luckymaomi.github.io/ui/styles/ 的 10 套风格页。取舍与结论如下。
+
+### 8.1 架构决定：与既有 10 种数字风格正交，而不是覆盖
+
+- **界面风格管「环境」**：背景（纯色/渐变）、数字底板的填充/描边/光影/圆角、胶囊按钮圆角与描边、标签字族与字距。
+- **数字风格仍管「字形」**：字重、字距、字号倍率、描边、中缝、等宽数字等 10 个维度不变。
+- 落法：`UiTokens`（const 令牌袋）+ `uiStyleSpecs`（`Map<UiStyle, (亮, 暗)>`）+ `UiScope`（InheritedWidget，挂在 `MaterialApp.builder` 上，抽屉/弹窗/设置路由一次注入全覆盖）+ `UiLayer`（背景层 + 三张静态 `CustomPaint` 装饰层）。
+- 没用 `ThemeExtension`：要写 20 个字段的 `copyWith`，而且主题对象语义上是「全局」，这里要的是「当前选中的一套」，InheritedWidget 更贴。
+- 没打包字体：衬线/等宽走 Android 系统别名 `serif` / `monospace`，并带 `fontFamilyFallback`。
+
+### 8.2 回归保护：`UiStyle.classic` 必须等于引入前
+
+classic 的两版令牌没有任何底板装饰（`hasPlateDecor == false`），`flip_card_widget` 在「无填充/无描边/无阴影」时直接 early-return 原 subtree，`main.dart` 的 Material seed 也仍是 `#46586B`。因此第一轮那 52 例一字未改仍全绿，这条是刻意设计的验收线。
+
+### 8.3 本轮修掉的三个真实缺陷
+
+1. **实时时钟没走可注入时间源（测试 flaky 的根因）**。`ClockTimeDisplay` 直接读 `DateTime.now()`，而 `clockSourceProvider` 这个缝只有倒计时在用。于是任何按 `HH:MM:SS` 通配去数控件的用例，只要 pump 期间跨过一次真实秒边界，`AnimatedSwitcher` 就会同时挂着新旧两份文本，`find.textContaining(RegExp(r'\d{2}:\d{2}:\d{2}'))` 报 "is too many"。`app_widget_test.dart:384` 那个 `.first` 就是这个症状的历史绕法。改法：`ClockTimeDisplay` 增加 `now` 字段，由 `clock_view` 在 `initState` 阶段从 provider 取一次（这样覆盖值变化时会重建 State，测试注入新的假时钟会真的生效）。实测：修复前全量套件连跑 6 次红 3 次（失败用例在 `app_widget_test` 与 `ui_style_test` 之间漂移），修复后连跑 5 次 `+62 All tests passed!`。
+2. **`UiLayer` 吞掉 ripple**。带底色的 `DecoratedBox` 成为 `ListTile` 的最近 Material 祖先，测试里出现 6 条 "this DecoratedBox will hide those effects"。补 `Material(type: MaterialType.transparency)` 作为 Stack 的最后一层。
+3. **`(亮, 暗)` 顺序没有测试保护**。`uiStyleSpecs` 的 record 字段写反不会被「两版底色不同」抓住，补了不变量「亮版 bg 相对亮度必须高于暗版」，11 套全过；同时把 `_darkModeTokens` 改名 `_darkModeDark`，与其余 10 套的命名一致。
+
+### 8.4 反向验证（确认测试不是恒真）
+
+撤掉 `flip_card_widget.dart` 里 `tokens.plateFill ??` 这一处消费点 → 目标用例「带阴影的风格真的把阴影画到了数字底板上」立刻变红（`plate.color` 变成 `null`），其余用例不受影响；从备份 `cp` 还原后 md5 与备份一致，62 例重新全绿。
+
+### 8.5 诚实边界
+
+- **毛玻璃是模拟的**：真 `BackdropFilter` 需要可模糊的背景内容，待机屏是纯色/渐变，糊不出东西，所以用「半透明分层 + 1px 亮线」表达同一套视觉规则。
+- **颗粒/团块/花纹是固定种子的静态绘制**，放在 `RepaintBoundary` 里且位于每秒重建的时钟子树之外，不逐帧重算随机数；但没有在真机上量过帧率。
+- 11 套 × 黑白 = 22 组只做了 800×600 的 widget 冒烟（主屏 + 抽屉 + 设置页，`takeException` 为空即无异常无溢出），**观感未经人眼验收**，字体族在其他平台的回退也未实测。
+
+### 8.6 本轮规模（实测）
+
+`git diff --cached --stat`（含新文件）：**15 个文件，+1312 / −143**，其中 `lib/` 11 个文件、新增层次 `lib/theme/` 与 `test/ui_style_test.dart`。测试从 52 例增至 **62 例**（`ui_style_test.dart` 10 例：令牌完整性 5 例 + 风格真生效与全矩阵 5 例）。

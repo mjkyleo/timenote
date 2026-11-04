@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../settings/enum_def.dart';
+import '../theme/ui_style.dart';
 
 /// 倒计时结束彩蛋：时钟区域整体替换为文案（无弹窗）
 class EggDisplay extends StatelessWidget {
@@ -10,9 +11,10 @@ class EggDisplay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = themeBase == ThemeBase.dark ? Colors.white : Colors.black;
-    final hintColor =
-        themeBase == ThemeBase.dark ? Colors.white54 : Colors.black54;
+    final tokens =
+        UiScope.maybeOf(context) ?? UiTokens.classic(themeBase == ThemeBase.dark);
+    final color = tokens.fg;
+    final hintColor = tokens.muted;
     return RepaintBoundary(
       child: LayoutBuilder(
         builder: (context, constraints) {

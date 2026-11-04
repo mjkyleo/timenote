@@ -28,8 +28,8 @@ import 'support/fake_wakelock.dart';
 /// 3. audioplayers 需要真实资源落盘，测试环境把 soundEnable 关掉，
 ///    彩蛋与声音互不阻塞的顺序改由代码审查保证。
 ///
-/// 倒计时走时通过 clockSourceProvider 注入假时间源，实时时钟仍读真实时间，
-/// 因此断言只看控件类型或倒计时专属字符串。
+/// 倒计时走时与实时时钟都通过 clockSourceProvider 注入假时间源，秒数只有在
+/// 测试主动 tick 时才会前进，所以翻页动画不会出现「新旧两份 HH:MM:SS 同时在场」。
 void main() {
   late ProviderContainer container;
   late DateTime fakeNow;
@@ -108,7 +108,7 @@ void main() {
     testWidgets('展示 HH:MM:SS 翻页数字', (tester) async {
       await pumpApp(tester);
       expect(find.byType(ClockTimeDisplay), findsOneWidget);
-      expect(find.textContaining(RegExp(r'\d{2}:\d{2}:\d{2}')), findsOneWidget);
+      expect(find.text('10:00:00'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
 

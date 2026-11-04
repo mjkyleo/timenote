@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../core/providers/app_providers.dart';
 import '../core/providers/todo_providers.dart';
+import '../settings/enum_def.dart';
+import '../theme/ui_style.dart';
 import 'todo_item.dart';
 
 /// 右侧滑出待办抽屉
@@ -33,9 +36,14 @@ class _TodoDrawerState extends ConsumerState<TodoDrawer> {
     final notifier = ref.read(todoListNotifierProvider.notifier);
     final doneCount = list.where((e) => e.isCompleted).length;
     final theme = Theme.of(context);
+    final themeBase = ref.watch(
+        appSettingsNotifierProvider.select((s) => s.themeBase));
+    final tokens = UiScope.maybeOf(context) ??
+        UiTokens.classic(themeBase == ThemeBase.dark);
 
     return Drawer(
       width: 360,
+      backgroundColor: tokens.surface ?? tokens.bg,
       child: SafeArea(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
@@ -46,9 +54,8 @@ class _TodoDrawerState extends ConsumerState<TodoDrawer> {
                 children: [
                   Expanded(
                     child: Text(
-                      '待办清单',
-                      style: theme.textTheme.titleLarge
-                          ?.copyWith(fontWeight: FontWeight.bold),
+                      uiLabelText(tokens, '待办清单'),
+                      style: uiLabelStyle(context, tokens, size: 20),
                     ),
                   ),
                   if (list.isNotEmpty)

@@ -6,6 +6,7 @@ import 'core/egg_service.dart';
 import 'core/providers/app_providers.dart';
 import 'core/storage_service.dart';
 import 'settings/enum_def.dart';
+import 'theme/ui_style.dart';
 import 'flip_clock/clock_view.dart';
 
 Future<void> main() async {
@@ -25,31 +26,38 @@ Future<void> main() async {
 class TimeNoteApp extends ConsumerWidget {
   const TimeNoteApp({super.key});
 
-  static const Color _seed = Color(0xFF46586B);
-
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final isDark = ref.watch(
         appSettingsNotifierProvider.select((s) => s.themeBase == ThemeBase.dark));
+    final uiStyle =
+        ref.watch(appSettingsNotifierProvider.select((s) => s.uiStyle));
+    final tokens = uiTokensFor(uiStyle, isDark);
+    // classic 沿用引入本层之前的种子色，保证 Material 组件观感一字不变
+    final seed = uiStyle == UiStyle.classic
+        ? const Color(0xFF46586B)
+        : tokens.accent;
+
+    ThemeData theme(Brightness brightness) => ThemeData(
+          useMaterial3: true,
+          brightness: brightness,
+          // 底色交给令牌；Material 组件（开关、输入框、按钮）跟随同一套强调色
+          scaffoldBackgroundColor: tokens.bg,
+          colorScheme: ColorScheme.fromSeed(seedColor: seed, brightness: brightness),
+        );
+
     return MaterialApp(
       title: '时笺 TimeNote',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: true,
-        brightness: Brightness.light,
-        scaffoldBackgroundColor: Colors.white,
-        colorScheme: ColorScheme.fromSeed(seedColor: _seed),
-      ),
-      darkTheme: ThemeData(
-        useMaterial3: true,
-        brightness: Brightness.dark,
-        scaffoldBackgroundColor: Colors.black,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: _seed,
-          brightness: Brightness.dark,
-        ),
-      ),
+      theme: theme(Brightness.light),
+      darkTheme: theme(Brightness.dark),
       themeMode: isDark ? ThemeMode.dark : ThemeMode.light,
+      // builder 包住 Navigator，于是主屏 / 设置页 / 抽屉 / 弹窗共用同一份令牌
+      builder: (context, child) => UiScope(
+        style: uiStyle,
+        tokens: tokens,
+        child: child ?? const SizedBox.shrink(),
+      ),
       home: const ClockView(),
     );
   }
