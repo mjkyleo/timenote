@@ -1,0 +1,75 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.8'
+          channel: stable
+          cache: true
+
+      - name: 生成提示音 alert.wav（API 无法推送二进制，云端重建）
+        run: |
+          python3 - <<'EOF'
+          import wave, struct, math
+          path = 'assets/audio/alert.wav'
+          sr = 44100
+          dur = 0.35
+          frames = []
+          for i in range(int(sr * dur)):
+              t = i / sr
+              env = math.exp(-t * 8)
+              v = int(0.35 * 32767 * math.sin(2 * math.pi * 880 * t) * env)
+              frames.append(struct.pack('<h', v))
+          with wave.open(path, 'wb') as w:
+              w.setnchannels(1)
+              w.setsampwidth(2)
+              w.setframerate(sr)
+              w.writeframes(b''.join(frames))
+          print('alert.wav generated')
+          EOF
+
+      - name: 恢复 gradle wrapper jar（二进制，API 无法推送）
+        run: |
+          curl -sL -o android/gradle/wrapper/gradle-wrapper.jar \
+            https://raw.githubusercontent.com/gradle/gradle/v8.7.0/gradle/wrapper/gradle-wrapper.jar
+          ls -la android/gradle/wrapper/
+
+      - name: 生成占位应用图标（二进制 PNG，云端重建）
+        run: |
+          cd android/app/src/main/res
+          for spec in mdpi 48 hdpi 72 xhdpi 96 xxhdpi 144 xxxhdpi 192; do
+            dir=$(echo $spec | cut -d' ' -f1)
+            size=$(echo $spec | cut -d' ' -f2)
+            convert -size ${size}x${size} xc:'#1a1a1a' "mipmap-$dir/ic_launcher.png"
+            echo "icon $dir $size done"
+          done
+
+      - name: 拉取依赖
+        run: flutter pub get
+
+      - name: 静态分析
+        run: flutter analyze
+
+      - name: 运行测试
+        run: flutter test
+
+      - name: 构建 Debug APK
+        run: flutter build apk --debug
+
+      - name: 上传 APK 产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: timenote-debug-apk
+          path: build/app/outputs/flutter-apk/app-debug.apk
