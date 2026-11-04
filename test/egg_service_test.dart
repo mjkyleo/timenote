@@ -19,7 +19,7 @@ void main() {
 
     test('文案库本身合法：非空且无重复', () {
       final pool = readPool();
-      expect(pool.length, greaterThanOrEqualTo(5));
+      expect(pool.length, greaterThanOrEqualTo(520));
       expect(pool.every((s) => s.trim().isNotEmpty), isTrue);
       expect(pool.toSet().length, pool.length, reason: '重复文案会让随机显得坏掉');
     });

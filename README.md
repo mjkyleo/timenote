@@ -43,11 +43,11 @@ lib/
 ├── egg/                   # 倒计时彩蛋展示
 └── main.dart
 assets/
-├── data/quotes.json       # 彩蛋文案库（占位样例，正式文案待填充）
+├── data/quotes.json       # 彩蛋文案库（520 条，已入库）
 ├── audio/alert.wav        # 提示音（已入库）
 └── fonts/                 # 免费商用字体（按需放入）
 test/
-├── app_widget_test.dart   # 主屏 / 抽屉 / 常亮 / 倒计时结束 / 设置（17 例）
+├── app_widget_test.dart   # 主屏 / 抽屉 / 常亮 / 倒计时结束 / 设置（18 例）
 ├── flip_rendering_test.dart # 动画静止态 + 风格可辨 + 自适应缩放（11 例）
 ├── clock_notifier_test.dart # 走时/暂停/继续/停止/生命周期（12 例，假时钟）
 ├── storage_service_test.dart # 真实磁盘落盘 + 脏数据容忍（3 例）
@@ -67,7 +67,7 @@ flutter run
 
 ```bash
 flutter analyze   # No issues found!
-flutter test      # 51 tests passed
+flutter test      # 52 tests passed
 ```
 
 三个可注入的测试缝让「测过」这件事真的成立：
@@ -105,7 +105,6 @@ git push origin main
 ## 📝 待办
 
 - [ ] 连真机验证常亮 / 横屏 / 提示音 / 抽屉手势（本机无设备，尚未验证）
-- [ ] 填充 520 条彩蛋文案（书籍 / 优质外文 / 社区摘录，英文原文无翻译）
 - [ ] 下载并打包 5 款免费商用字体
 - [ ] 决定 `gradle-wrapper.jar` 与图标是否纳入版本库（纳入后可删 CI 里的下载步骤）
 - [ ] 华为 OpenHarmony（Flutter-OH）平台适配与打包

@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -8,6 +11,7 @@ import 'package:timenote/egg/egg_display.dart';
 import 'package:timenote/flip_clock/clock_controller.dart';
 import 'package:timenote/flip_clock/flip_card_widget.dart';
 import 'package:timenote/main.dart';
+import 'package:timenote/settings/enum_def.dart';
 import 'package:timenote/settings/settings_page.dart';
 
 import 'support/fake_storage.dart';
@@ -280,6 +284,22 @@ void main() {
       await pumpFrames(tester, 4, const Duration(milliseconds: 50));
       expect(find.byType(CountdownDisplay), findsNothing);
       expect(find.byType(ClockTimeDisplay), findsOneWidget);
+    });
+
+    testWidgets('文案库最长那条在 800x600 也不溢出', (tester) async {
+      final pool = (jsonDecode(
+              File('assets/data/quotes.json').readAsStringSync()) as List)
+          .cast<String>();
+      final longest = pool.reduce((a, b) => a.length >= b.length ? a : b);
+
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(body: EggDisplay(text: longest, themeBase: ThemeBase.dark)),
+      ));
+      await tester.pump();
+
+      expect(find.text(longest), findsOneWidget);
+      expect(tester.takeException(), isNull,
+          reason: '520 条里最长的「$longest」不应触发渲染异常');
     });
 
     testWidgets('暂停期间时间冻结，点继续后接着走', (tester) async {
