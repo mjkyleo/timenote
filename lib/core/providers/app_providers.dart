@@ -88,13 +88,14 @@ class AppSettingsNotifier extends Notifier<AppSettingsState> {
 
   Future<void> update(AppSettingsState newState) async {
     state = newState;
-    await StorageService.setSetting('themeBase', newState.themeBase.name);
-    await StorageService.setSetting('flipAnimStyle', newState.flipAnimStyle.name);
-    await StorageService.setSetting(
-        'clockVisualStyle', newState.clockVisualStyle.name);
-    await StorageService.setSetting('animSpeed', newState.animSpeed.name);
-    await StorageService.setSetting('keepScreenOn', newState.keepScreenOn);
-    await StorageService.setSetting('eggEnable', newState.eggEnable);
-    await StorageService.setSetting('soundEnable', newState.soundEnable);
+    await StorageService.writeSettings({
+      'themeBase': newState.themeBase.name,
+      'flipAnimStyle': newState.flipAnimStyle.name,
+      'clockVisualStyle': newState.clockVisualStyle.name,
+      'animSpeed': newState.animSpeed.name,
+      'keepScreenOn': newState.keepScreenOn,
+      'eggEnable': newState.eggEnable,
+      'soundEnable': newState.soundEnable,
+    });
   }
 }

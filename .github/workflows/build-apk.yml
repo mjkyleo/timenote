@@ -19,28 +19,7 @@ jobs:
           channel: stable
           cache: true
 
-      - name: 生成提示音 alert.wav（API 无法推送二进制，云端重建）
-        run: |
-          python3 - <<'EOF'
-          import wave, struct, math
-          path = 'assets/audio/alert.wav'
-          sr = 44100
-          dur = 0.35
-          frames = []
-          for i in range(int(sr * dur)):
-              t = i / sr
-              env = math.exp(-t * 8)
-              v = int(0.35 * 32767 * math.sin(2 * math.pi * 880 * t) * env)
-              frames.append(struct.pack('<h', v))
-          with wave.open(path, 'wb') as w:
-              w.setnchannels(1)
-              w.setsampwidth(2)
-              w.setframerate(sr)
-              w.writeframes(b''.join(frames))
-          print('alert.wav generated')
-          EOF
-
-      - name: 恢复 gradle wrapper jar（二进制，API 无法推送）
+      - name: 恢复 gradle wrapper jar（二进制，未纳入版本库）
         run: |
           curl -sL -o android/gradle/wrapper/gradle-wrapper.jar \
             https://raw.githubusercontent.com/gradle/gradle/v8.7.0/gradle/wrapper/gradle-wrapper.jar

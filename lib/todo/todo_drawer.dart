@@ -30,36 +30,57 @@ class _TodoDrawerState extends ConsumerState<TodoDrawer> {
   @override
   Widget build(BuildContext context) {
     final list = ref.watch(todoListNotifierProvider);
-    return SizedBox(
-      width: 320,
-      child: Drawer(
+    final notifier = ref.read(todoListNotifierProvider.notifier);
+    final doneCount = list.where((e) => e.isCompleted).length;
+    final theme = Theme.of(context);
+
+    return Drawer(
+      width: 360,
+      child: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const SizedBox(height: 12),
-              const Text(
-                '待办清单',
-                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '待办清单',
+                      style: theme.textTheme.titleLarge
+                          ?.copyWith(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  if (list.isNotEmpty)
+                    Text('${list.length - doneCount}/${list.length}',
+                        style: theme.textTheme.labelMedium),
+                  if (doneCount > 0)
+                    IconButton(
+                      icon: const Icon(Icons.delete_sweep_outlined),
+                      tooltip: '清除已完成（$doneCount）',
+                      onPressed: notifier.clearCompleted,
+                    ),
+                ],
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
               Row(
                 children: [
                   Expanded(
                     child: TextField(
                       controller: _ctrl,
-                      maxLength: 60,
+                      maxLength: TodoListNotifier.maxTitleLength,
+                      textInputAction: TextInputAction.done,
                       decoration: const InputDecoration(
                         hintText: '新增待办…',
                         counterText: '',
                         border: OutlineInputBorder(),
+                        isDense: true,
                       ),
                       onSubmitted: (_) => _addTodo(),
                     ),
                   ),
                   const SizedBox(width: 8),
-                  IconButton(
+                  IconButton.filled(
                     icon: const Icon(Icons.add),
                     tooltip: '添加',
                     onPressed: _addTodo,
@@ -69,14 +90,17 @@ class _TodoDrawerState extends ConsumerState<TodoDrawer> {
               const SizedBox(height: 8),
               Expanded(
                 child: list.isEmpty
-                    ? const Center(
+                    ? Center(
                         child: Text(
                           '暂无待办，添加一条吧',
-                          style: TextStyle(color: Colors.grey),
+                          style: theme.textTheme.bodyMedium
+                              ?.copyWith(color: theme.hintColor),
                         ),
                       )
-                    : ListView.builder(
+                    : ListView.separated(
                         itemCount: list.length,
+                        separatorBuilder: (_, __) =>
+                            Divider(height: 1, color: theme.dividerColor),
                         itemBuilder: (ctx, idx) =>
                             TodoItemWidget(item: list[idx]),
                       ),

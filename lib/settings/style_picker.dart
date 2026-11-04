@@ -1,34 +1,64 @@
 import 'package:flutter/material.dart';
+import '../core/constants.dart';
+import '../flip_clock/flip_renderer.dart';
 import '../settings/enum_def.dart';
 
-/// 风格 / 选项卡片（选中态高亮边框）
+/// 选项卡片（选中态高亮边框）
+///
+/// [labelStyle] 传入某个数字样式的文字样式时，标签本身就用该样式渲染，
+/// 于是 10 种风格在选择阶段就已经可辨认。
 Widget buildStyleItem(
   BuildContext context,
   String label,
   bool selected,
-  VoidCallback onTap,
-) {
-  return InkWell(
-    onTap: onTap,
-    borderRadius: BorderRadius.circular(10),
-    child: Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      margin: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        border: Border.all(
-          color: selected ? Colors.blueAccent : Colors.grey.shade400,
-          width: selected ? 2 : 1,
+  VoidCallback onTap, {
+  TextStyle? labelStyle,
+}) {
+  final theme = Theme.of(context);
+  return Padding(
+    padding: const EdgeInsets.all(4),
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          border: Border.all(
+            color: selected ? theme.colorScheme.primary : Colors.grey.shade400,
+            width: selected ? 2 : 1,
+          ),
+          borderRadius: BorderRadius.circular(10),
+          color: selected
+              ? theme.colorScheme.primary.withValues(alpha: 0.1)
+              : null,
         ),
-        borderRadius: BorderRadius.circular(10),
-        color: selected ? Colors.blue.withValues(alpha: 0.08) : null,
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (selected) ...[
+              Icon(Icons.check, size: 16, color: theme.colorScheme.primary),
+              const SizedBox(width: 6),
+            ],
+            Text(
+              label,
+              style: (labelStyle ?? theme.textTheme.bodyMedium)
+                  ?.copyWith(fontWeight: selected ? FontWeight.w700 : null),
+            ),
+          ],
         ),
       ),
     ),
+  );
+}
+
+/// 供选择器使用的标签文字样式（比主屏字号小，描边按比例收细）
+TextStyle labelStyleFor(ClockVisualStyle style, Color foreground) {
+  final look = appearanceFor(style);
+  return clockTextStyle(
+    look: look,
+    foreground: foreground,
+    fontFamily: AppConstants.fontOf(style),
+    fontSize: 22,
   );
 }
 

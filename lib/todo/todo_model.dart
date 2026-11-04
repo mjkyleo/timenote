@@ -2,15 +2,24 @@
 class TodoItem {
   final String id;
   final String title;
-  bool isCompleted;
+  final bool isCompleted;
   final DateTime createAt;
 
-  TodoItem({
+  const TodoItem({
     required this.id,
     required this.title,
     this.isCompleted = false,
     required this.createAt,
   });
+
+  TodoItem copyWith({bool? isCompleted}) {
+    return TodoItem(
+      id: id,
+      title: title,
+      isCompleted: isCompleted ?? this.isCompleted,
+      createAt: createAt,
+    );
+  }
 
   Map<String, dynamic> toMap() {
     return {
@@ -21,11 +30,15 @@ class TodoItem {
     };
   }
 
-  factory TodoItem.fromMap(Map<dynamic, dynamic> map) {
+  /// 容忍旧版本/损坏数据：缺少 id 或 title 的条目返回 null，由调用方丢弃
+  static TodoItem? fromMap(Map<dynamic, dynamic> map) {
+    final id = map['id'];
+    final title = map['title'];
+    if (id is! String || id.isEmpty || title is! String) return null;
     return TodoItem(
-      id: map['id'] as String,
-      title: map['title'] as String,
-      isCompleted: map['isCompleted'] as bool? ?? false,
+      id: id,
+      title: title,
+      isCompleted: map['isCompleted'] == true,
       createAt: DateTime.fromMillisecondsSinceEpoch(
         (map['createAt'] as num?)?.toInt() ?? 0,
       ),

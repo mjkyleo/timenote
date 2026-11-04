@@ -5,6 +5,10 @@
 .pub/
 build/
 flutter_*.log
+# pub get 生成；内含本机绝对路径
+.flutter-plugins-dependencies
+# 本机 PUB_HOSTED_URL 是 pub.flutter-io.cn，写进 lock 会把 CI 也拽到该镜像
+pubspec.lock
 *.iml
 *.ipr
 *.iws
