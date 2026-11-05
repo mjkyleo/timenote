@@ -6,9 +6,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:timenote/core/providers/app_providers.dart';
 import 'package:timenote/core/providers/clock_providers.dart';
 import 'package:timenote/core/storage_service.dart';
+import 'package:timenote/flip_clock/flip_card_widget.dart';
 import 'package:timenote/main.dart';
 import 'package:timenote/settings/enum_def.dart';
 import 'package:timenote/settings/settings_page.dart';
+import 'package:timenote/settings/style_picker.dart';
 import 'package:timenote/theme/ui_style.dart';
 
 import 'support/fake_storage.dart';
@@ -155,6 +157,32 @@ void main() {
           reason: 'classic + 无底板数字样式不应出现装饰节点');
     });
 
+    testWidgets('外框档位穿过设置一直打到主屏，不只是设置页预览动', (tester) async {
+      Future<void> setFrame(PlateFrame frame) =>
+          container.read(appSettingsNotifierProvider.notifier).update(
+              container
+                  .read(appSettingsNotifierProvider)
+                  .copyWith(uiStyle: UiStyle.classic, plateFrame: frame));
+
+      await setFrame(PlateFrame.follow);
+      await pumpApp(tester);
+      expect(find.byKey(const Key('flip-plate')), findsNothing,
+          reason: 'classic 本就不该有底板装饰节点');
+
+      await setFrame(PlateFrame.thin);
+      await pumpApp(tester);
+      final plate = tester
+          .widget<Container>(find.byKey(const Key('flip-plate')))
+          .decoration! as BoxDecoration;
+      expect(plate.border?.top.width, 1.5,
+          reason: '主屏没跟着档位走，说明设置值没穿过 ClockTimeDisplay');
+      expect(StorageService.getSetting('plateFrame', ''), 'thin');
+
+      await setFrame(PlateFrame.none);
+      await pumpApp(tester);
+      expect(find.byKey(const Key('flip-plate')), findsNothing);
+    });
+
     testWidgets('11 套风格 × 黑白底色全矩阵冒烟：主屏/抽屉/设置都不报错',
         (tester) async {
       await pumpApp(tester);
@@ -208,6 +236,89 @@ void main() {
           UiStyle.retroVintage);
       expect(tester.widget<Scaffold>(find.byType(Scaffold).first).backgroundColor,
           const Color(0xFFF5E6D3));
+    });
+  });
+
+  group('数字外框档位', () {
+    /// 一套「什么都没给」的令牌和几套「自带描边」的令牌，用来验档位说了算
+    final noStroke = uiTokensFor(UiStyle.classic, true);
+    final hairline = uiTokensFor(UiStyle.editorial, true);
+    final heavy = uiTokensFor(UiStyle.retroVintage, true);
+
+    test('follow 照抄令牌，none 一律去掉，thin/thick 一律补上', () {
+      expect(resolvePlateFrame(PlateFrame.follow, hairline),
+          (hairline.plateStroke, hairline.plateStrokeWidth));
+
+      // 令牌里没描边的风格：档位要自己兜一个颜色，不能画成透明
+      final (thinColor, thinWidth) = resolvePlateFrame(PlateFrame.thin, noStroke);
+      expect(thinColor, isNotNull);
+      expect(thinColor, noStroke.fg.withValues(alpha: 0.42));
+      expect(thinWidth, 1.5);
+      expect(resolvePlateFrame(PlateFrame.thick, noStroke).$2, 3);
+
+      // 档位覆盖风格：复古印刷自带 3px 粗线，选细就得变细
+      expect(heavy.plateStrokeWidth, 3, reason: '前提：复古印刷原样是 3px');
+      expect(resolvePlateFrame(PlateFrame.thin, heavy).$2, 1.5);
+
+      for (final tokens in [noStroke, hairline, heavy]) {
+        expect(resolvePlateFrame(PlateFrame.none, tokens).$1, isNull,
+            reason: '选了去掉外框还留线，这一档就等于没生效');
+        expect(resolvePlateFrame(PlateFrame.thick, tokens).$1, isNotNull,
+            reason: '选了粗外框却不画，风格没自带线时用户什么都看不到');
+      }
+    });
+
+    testWidgets('档位真的改变主屏底板的描边节点', (tester) async {
+      Widget board(PlateFrame frame) => MaterialApp(
+            home: Scaffold(
+              body: UiScope(
+                style: UiStyle.classic,
+                tokens: noStroke,
+                child: Center(
+                  child: FlipCardWidget(
+                    content: '10:00',
+                    animDur: const Duration(milliseconds: 450),
+                    animStyle: FlipAnimStyle.crossfade,
+                    visualStyle: ClockVisualStyle.appleMinimal,
+                    themeBase: ThemeBase.dark,
+                    plateFrame: frame,
+                  ),
+                ),
+              ),
+            ),
+          );
+
+      // classic + 苹果极简本是不加任何底板装饰的组合（上面已钉过）
+      await tester.pumpWidget(board(PlateFrame.follow));
+      await tester.pump();
+      expect(find.byKey(const Key('flip-plate')), findsNothing);
+
+      await tester.pumpWidget(board(PlateFrame.thick));
+      await tester.pump();
+      final plate = tester
+          .widget<Container>(find.byKey(const Key('flip-plate')))
+          .decoration! as BoxDecoration;
+      expect(plate.border?.top.width, 3);
+      expect(plate.color, isNull,
+          reason: '外框档只管描边；底板填充与光影仍归界面风格，classic 没给就不该冒出来');
+
+      await tester.pumpWidget(board(PlateFrame.none));
+      await tester.pump();
+      expect(find.byKey(const Key('flip-plate')), findsNothing,
+          reason: '去掉外框后这对组合应回到无装饰路径');
+      expect(tester.takeException(), isNull);
+    });
+
+    test('四档都有中文名且两两不同', () {
+      final names = PlateFrame.values.map(plateFrameName).toList();
+      expect(names.toSet(), hasLength(PlateFrame.values.length));
+      expect(names.first, '跟随界面风格');
+    });
+
+    test('三档结束行为都有中文名且两两不同', () {
+      final names = FinishBehavior.values.map(finishBehaviorName).toList();
+      expect(names.toSet(), hasLength(FinishBehavior.values.length));
+      expect(names, contains('停留 00:00:00'));
     });
   });
 

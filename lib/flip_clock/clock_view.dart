@@ -44,13 +44,13 @@ class _ClockViewState extends ConsumerState<ClockView> {
     super.initState();
     SystemChrome.setPreferredOrientations(AppConstants.landscapeOrientations);
     _applyWakelock(ref.read(appSettingsNotifierProvider).keepScreenOn);
-    // 倒计时归零 → 提示音 + 彩蛋（避免在 build 内重复注册）
+    // 倒计时归零 → 按「结束行为」那一档分发（停留 / 重开 / 彩蛋），外加提示音
     _clockSub = ref.listenManual(clockNotifierProvider, (prev, next) {
       final justFinished = prev != null &&
           prev.remainTime > Duration.zero &&
           next.remainTime == Duration.zero &&
           next.workMode == ClockWorkMode.countdown;
-      if (justFinished) _onCountdownFinished();
+      if (justFinished) _onCountdownFinished(next.total);
     });
     // 常亮开关需要即时生效，而不是等下次启动
     _wakelockSub = ref.listenManual(
@@ -103,10 +103,10 @@ class _ClockViewState extends ConsumerState<ClockView> {
         child: IgnorePointer(ignoring: !_chromeVisible, child: child),
       );
 
-  Future<void> _onCountdownFinished() async {
+  Future<void> _onCountdownFinished(Duration lastTotal) async {
     final setting = ref.read(appSettingsNotifierProvider);
     // 彩蛋先上屏：提示音走平台通道与文件 IO，不能把视觉反馈挡在后面
-    if (setting.eggEnable && mounted) {
+    if (setting.onFinish == FinishBehavior.showEgg && mounted) {
       setState(() {
         _eggText = EggService.getRandomQuote();
         _showEgg = true;
@@ -116,7 +116,11 @@ class _ClockViewState extends ConsumerState<ClockView> {
         const Duration(seconds: AppConstants.eggStaySeconds),
         _hideEgg,
       );
+    } else if (setting.onFinish == FinishBehavior.autoRestart && mounted) {
+      // 「上一次选的时长」就是这一轮的 total：连坐时不必再伸手点一遍
+      ref.read(clockNotifierProvider.notifier).startCountdown(lastTotal);
     }
+    // stayZero：什么都不做，屏幕留着 00:00:00
     if (!setting.soundEnable) return;
     try {
       await (_alarm ??= AudioPlayer())
@@ -248,6 +252,7 @@ class _ClockViewState extends ConsumerState<ClockView> {
             visualStyle: appSetting.clockVisualStyle,
             speed: appSetting.animSpeed,
             themeBase: appSetting.themeBase,
+            plateFrame: appSetting.plateFrame,
           )
         : CountdownDisplay(
             remain: clockState.remainTime,
@@ -255,6 +260,7 @@ class _ClockViewState extends ConsumerState<ClockView> {
             visualStyle: appSetting.clockVisualStyle,
             speed: appSetting.animSpeed,
             themeBase: appSetting.themeBase,
+            plateFrame: appSetting.plateFrame,
           );
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),

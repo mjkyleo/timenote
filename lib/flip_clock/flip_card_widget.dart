@@ -11,6 +11,7 @@ class FlipCardWidget extends StatelessWidget {
   final FlipAnimStyle animStyle;
   final ClockVisualStyle visualStyle;
   final ThemeBase themeBase;
+  final PlateFrame plateFrame;
 
   const FlipCardWidget({
     super.key,
@@ -19,6 +20,7 @@ class FlipCardWidget extends StatelessWidget {
     required this.animStyle,
     required this.visualStyle,
     required this.themeBase,
+    this.plateFrame = PlateFrame.follow,
   });
 
   @override
@@ -55,6 +57,7 @@ class FlipCardWidget extends StatelessWidget {
                   child: _Plate(
                     look: look,
                     tokens: tokens,
+                    plateFrame: plateFrame,
                     plateColor:
                         foreground.withValues(alpha: look.plateOpacity),
                     seamColor: isDark
@@ -84,6 +87,7 @@ class FlipCardWidget extends StatelessWidget {
 class _Plate extends StatelessWidget {
   final ClockLook look;
   final UiTokens tokens;
+  final PlateFrame plateFrame;
   final Color plateColor;
   final Color seamColor;
   final Widget child;
@@ -91,6 +95,7 @@ class _Plate extends StatelessWidget {
   const _Plate({
     required this.look,
     required this.tokens,
+    required this.plateFrame,
     required this.plateColor,
     required this.seamColor,
     required this.child,
@@ -121,7 +126,7 @@ class _Plate extends StatelessWidget {
     }
     final fill = tokens.plateFill ??
         (look.plateOpacity > 0 ? plateColor : null);
-    final stroke = tokens.plateStroke;
+    final (stroke, strokeWidth) = resolvePlateFrame(plateFrame, tokens);
     if (fill == null && stroke == null && tokens.plateShadow.isEmpty) {
       return result;
     }
@@ -133,12 +138,30 @@ class _Plate extends StatelessWidget {
         borderRadius: BorderRadius.circular(tokens.radiusOr(look.radius)),
         border: stroke == null
             ? null
-            : Border.all(color: stroke, width: tokens.plateStrokeWidth),
+            : Border.all(color: stroke, width: strokeWidth),
         boxShadow:
             tokens.plateShadow.isEmpty ? null : tokens.plateShadow,
       ),
       child: result,
     );
+  }
+}
+
+/// 外框档位 → 实际描边（颜色 + 线宽）。
+///
+/// 只管描边这一层：底板的填充、圆角、光影仍由界面风格令牌决定，两层不打架。
+/// [PlateFrame.thin]/[PlateFrame.thick] 在风格没给描边色时退成前景的淡版，
+/// 否则在纯黑/纯白底上会画出一条生硬的原色线。
+(Color?, double) resolvePlateFrame(PlateFrame frame, UiTokens tokens) {
+  switch (frame) {
+    case PlateFrame.follow:
+      return (tokens.plateStroke, tokens.plateStrokeWidth);
+    case PlateFrame.none:
+      return (null, tokens.plateStrokeWidth);
+    case PlateFrame.thin:
+    case PlateFrame.thick:
+      final color = tokens.plateStroke ?? tokens.fg.withValues(alpha: 0.42);
+      return (color, frame == PlateFrame.thin ? 1.5 : 3);
   }
 }
 

@@ -272,9 +272,10 @@ void main() {
       expect(find.byType(ClockTimeDisplay), findsOneWidget);
     });
 
-    testWidgets('关闭彩蛋后归零保留 00:00:00 结束态', (tester) async {
+    testWidgets('选「停留 00:00:00」时归零留屏，不切回实时时钟', (tester) async {
       await pumpApp(tester);
-      appSettings().update(settings().copyWith(eggEnable: false));
+      appSettings()
+          .update(settings().copyWith(onFinish: FinishBehavior.stayZero));
       await pumpFrames(tester, 2, const Duration(milliseconds: 50));
 
       container.read(clockNotifierProvider.notifier)
@@ -284,6 +285,59 @@ void main() {
       expect(find.byType(EggDisplay), findsNothing);
       expect(find.byType(CountdownDisplay), findsOneWidget);
       expect(await readClock(tester), '00:00:00');
+
+      // 这一档的约定就是「不动」：彩蛋超时切回那条路径不能偷偷跑起来
+      await tester.pump(const Duration(seconds: 6));
+      await pumpFrames(tester, 6, const Duration(milliseconds: 80));
+      expect(find.byType(CountdownDisplay), findsOneWidget,
+          reason: '停留档不该在几秒后自己回实时时钟');
+      expect(await readClock(tester), '00:00:00');
+    });
+
+    testWidgets('选「自动重新开始」时用上一轮的时长直接重开', (tester) async {
+      await pumpApp(tester);
+      appSettings()
+          .update(settings().copyWith(onFinish: FinishBehavior.autoRestart));
+      await pumpFrames(tester, 2, const Duration(milliseconds: 50));
+
+      container.read(clockNotifierProvider.notifier)
+          .startCountdown(const Duration(seconds: 3));
+      await tick(tester, const Duration(seconds: 3));
+      await pumpFrames(tester, 6, const Duration(milliseconds: 80));
+
+      expect(find.byType(EggDisplay), findsNothing,
+          reason: '重开档不该弹彩蛋');
+      final state = container.read(clockNotifierProvider);
+      expect(state.workMode, ClockWorkMode.countdown);
+      expect(state.total, const Duration(seconds: 3),
+          reason: '重开用的必须是上一次选的那个时长，不是预设默认值');
+      expect(state.isRunning, isTrue);
+      expect(await readClock(tester), '00:00:03');
+
+      // 第二轮也得照常归零再重开，不然只循环一次
+      await tick(tester, const Duration(seconds: 3));
+      await pumpFrames(tester, 6, const Duration(milliseconds: 80));
+      expect(await readClock(tester), '00:00:03');
+      expect(container.read(clockNotifierProvider).isRunning, isTrue);
+
+      // 用户点停止就是真停：不能因为这一档「会自动重开」而停不下来
+      await stopTicker(tester);
+      await tick(tester, const Duration(seconds: 4));
+      await pumpFrames(tester, 4, const Duration(milliseconds: 50));
+      expect(find.byType(ClockTimeDisplay), findsOneWidget,
+          reason: '停止后不该再被自动重开拉回倒计时');
+    });
+
+    testWidgets('三档默认是弹彩蛋，改档后落盘；没进过设置页时不写这条', (tester) async {
+      await pumpApp(tester);
+      expect(settings().onFinish, FinishBehavior.showEgg,
+          reason: '原 eggEnable 默认 true，改成枚举后默认档必须还是彩蛋');
+      expect(StorageService.getSetting('onFinish', '<缺>'), '<缺>',
+          reason: '没动过设置就不该有这条键');
+
+      appSettings()
+          .update(settings().copyWith(onFinish: FinishBehavior.stayZero));
+      expect(StorageService.getSetting('onFinish', ''), 'stayZero');
     });
 
     testWidgets('停止倒计时回到实时时钟，不留 00:00:00 死屏', (tester) async {
@@ -543,6 +597,34 @@ void main() {
         ),
         findsOneWidget,
       );
+    });
+
+    testWidgets('滚到最下面能选「结束行为」与「数字外框」，选完即落盘', (tester) async {
+      await pumpApp(tester);
+      await openSettings(tester);
+      final options = find.byType(ListView);
+
+      await tester.dragUntilVisible(
+          find.text('自动重新开始'), options, const Offset(0, -120));
+      await pumpFrames(tester, 4, const Duration(milliseconds: 50));
+      await tester.tap(find.text('自动重新开始'));
+      await pumpFrames(tester, 4, const Duration(milliseconds: 50));
+      expect(StorageService.getSetting('onFinish', ''), 'autoRestart');
+
+      await tester.dragUntilVisible(
+          find.text('粗外框'), options, const Offset(0, -120));
+      await pumpFrames(tester, 4, const Duration(milliseconds: 50));
+      await tester.tap(find.text('粗外框'));
+      await pumpFrames(tester, 4, const Duration(milliseconds: 50));
+      expect(StorageService.getSetting('plateFrame', ''), 'thick');
+
+      // 预览是活的：选完外框，同一棵树上的底板就该带上 3px 描边
+      final plate = tester.widget<Container>(find.descendant(
+          of: find.byType(StylePreview), matching: find.byKey(const Key('flip-plate'))));
+      final deco = plate.decoration as BoxDecoration;
+      expect(deco.border?.top.width, 3,
+          reason: '预览没跟着档位走，说明设置值没穿过 FlipCardWidget');
+      expect(deco.border?.top.color, isNotNull);
     });
   });
 }

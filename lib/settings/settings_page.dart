@@ -8,7 +8,8 @@ import '../theme/ui_style.dart';
 import 'enum_def.dart';
 import 'style_picker.dart';
 
-/// 设置页：底色 / 11 套界面风格 / 10 种数字样式 / 24 种翻页动画 + 混合轮换 / 速度 / 开关
+/// 设置页：底色 / 11 套界面风格 / 10 种数字样式 / 24 种翻页动画 + 混合轮换 /
+/// 速度 / 8 种底层进度组件 / 数字外框 / 倒计时结束三档 / 常亮与提示音
 ///
 /// 左侧（窄屏时上方）是实时预览：改任何一项都能立刻看到翻页效果，
 /// 不必退回主屏去验证。
@@ -143,6 +144,28 @@ class SettingsPage extends ConsumerWidget {
               () => update(appState.copyWith(progressDecor: d)),
             ),
         ]),
+        _sectionTitle(context, tokens, '数字外框（底板描边）'),
+        _chips([
+          for (final f in PlateFrame.values)
+            buildStyleItem(
+              context,
+              plateFrameName(f),
+              appState.plateFrame == f,
+              () => update(appState.copyWith(plateFrame: f)),
+            ),
+        ]),
+        _sectionTitle(context, tokens, '倒计时结束'),
+        _chips([
+          for (final b in FinishBehavior.values)
+            buildStyleItem(
+              context,
+              finishBehaviorName(b),
+              appState.onFinish == b,
+              () => update(appState.copyWith(onFinish: b)),
+            ),
+        ]),
+        _hint(tokens,
+            '自动重开用的是上一次选的那个时长；彩蛋展示 ${AppConstants.eggStaySeconds} 秒后切回实时时钟。'),
         const SizedBox(height: 12),
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
@@ -154,16 +177,8 @@ class SettingsPage extends ConsumerWidget {
         ),
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
-          title: const Text('倒计时结束彩蛋'),
-          subtitle: const Text(
-              '归零后展示随机文案，${AppConstants.eggStaySeconds} 秒后自动切回'),
-          value: appState.eggEnable,
-          onChanged: (val) => update(appState.copyWith(eggEnable: val)),
-        ),
-        SwitchListTile(
-          contentPadding: EdgeInsets.zero,
           title: const Text('提示音'),
-          subtitle: const Text('倒计时结束时播放，与彩蛋开关互不影响'),
+          subtitle: const Text('倒计时结束时播放，与结束行为互不影响'),
           value: appState.soundEnable,
           onChanged: (val) => update(appState.copyWith(soundEnable: val)),
         ),
@@ -195,6 +210,14 @@ class SettingsPage extends ConsumerWidget {
         runSpacing: 2,
         crossAxisAlignment: WrapCrossAlignment.center,
         children: items,
+      );
+
+  /// 芯片组下面那行小字：三档结束行为这类「选完当场看不出差别」的组，
+  /// 光靠芯片名说不清约定
+  Widget _hint(UiTokens tokens, String text) => Padding(
+        padding: const EdgeInsets.only(top: 6, left: 4),
+        child: Text(text,
+            style: TextStyle(fontSize: 11, height: 1.4, color: tokens.muted)),
       );
 }
 
@@ -251,6 +274,7 @@ class _StylePreviewState extends State<StylePreview> {
                 animStyle: s.flipAnimStyle,
                 visualStyle: s.clockVisualStyle,
                 themeBase: s.themeBase,
+                plateFrame: s.plateFrame,
               ),
             ),
           ),

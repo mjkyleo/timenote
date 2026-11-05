@@ -10,8 +10,9 @@ class AppSettingsState {
   final ClockVisualStyle clockVisualStyle;
   final AnimSpeed animSpeed;
   final ProgressDecor progressDecor;
+  final FinishBehavior onFinish;
+  final PlateFrame plateFrame;
   final bool keepScreenOn;
-  final bool eggEnable;
   final bool soundEnable;
 
   AppSettingsState({
@@ -21,8 +22,9 @@ class AppSettingsState {
     required this.clockVisualStyle,
     required this.animSpeed,
     required this.progressDecor,
+    required this.onFinish,
+    required this.plateFrame,
     required this.keepScreenOn,
-    required this.eggEnable,
     required this.soundEnable,
   });
 
@@ -33,8 +35,9 @@ class AppSettingsState {
     ClockVisualStyle? clockVisualStyle,
     AnimSpeed? animSpeed,
     ProgressDecor? progressDecor,
+    FinishBehavior? onFinish,
+    PlateFrame? plateFrame,
     bool? keepScreenOn,
-    bool? eggEnable,
     bool? soundEnable,
   }) {
     return AppSettingsState(
@@ -44,8 +47,9 @@ class AppSettingsState {
       clockVisualStyle: clockVisualStyle ?? this.clockVisualStyle,
       animSpeed: animSpeed ?? this.animSpeed,
       progressDecor: progressDecor ?? this.progressDecor,
+      onFinish: onFinish ?? this.onFinish,
+      plateFrame: plateFrame ?? this.plateFrame,
       keepScreenOn: keepScreenOn ?? this.keepScreenOn,
-      eggEnable: eggEnable ?? this.eggEnable,
       soundEnable: soundEnable ?? this.soundEnable,
     );
   }
@@ -70,8 +74,11 @@ class AppSettingsNotifier extends Notifier<AppSettingsState> {
         StorageService.getSetting('animSpeed', AnimSpeed.normal.name);
     final decorRaw = StorageService.getSetting(
         'progressDecor', ProgressDecor.none.name);
+    final finishRaw = StorageService.getSetting(
+        'onFinish', FinishBehavior.showEgg.name);
+    final frameRaw =
+        StorageService.getSetting('plateFrame', PlateFrame.follow.name);
     final keepOn = StorageService.getSetting('keepScreenOn', true);
-    final eggOn = StorageService.getSetting('eggEnable', true);
     final soundOn = StorageService.getSetting('soundEnable', true);
 
     return AppSettingsState(
@@ -99,8 +106,15 @@ class AppSettingsNotifier extends Notifier<AppSettingsState> {
         (e) => e.name == decorRaw,
         orElse: () => ProgressDecor.none,
       ),
+      onFinish: FinishBehavior.values.firstWhere(
+        (e) => e.name == finishRaw,
+        orElse: () => FinishBehavior.showEgg,
+      ),
+      plateFrame: PlateFrame.values.firstWhere(
+        (e) => e.name == frameRaw,
+        orElse: () => PlateFrame.follow,
+      ),
       keepScreenOn: keepOn,
-      eggEnable: eggOn,
       soundEnable: soundOn,
     );
   }
@@ -114,8 +128,9 @@ class AppSettingsNotifier extends Notifier<AppSettingsState> {
       'clockVisualStyle': newState.clockVisualStyle.name,
       'animSpeed': newState.animSpeed.name,
       'progressDecor': newState.progressDecor.name,
+      'onFinish': newState.onFinish.name,
+      'plateFrame': newState.plateFrame.name,
       'keepScreenOn': newState.keepScreenOn,
-      'eggEnable': newState.eggEnable,
       'soundEnable': newState.soundEnable,
     });
   }

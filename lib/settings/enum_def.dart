@@ -100,3 +100,17 @@ enum UiStyle {
 
 /// 时钟工作模式
 enum ClockWorkMode { realtime, countdown }
+
+/// 倒计时归零后的行为（三档，取代原来的「彩蛋开关」）
+///
+/// [stayZero] 留在 `00:00:00` 等用户自己点；
+/// [autoRestart] 用上一次选的时长直接重开，适合一轮接一轮地坐；
+/// [showEgg] 整屏换成随机文案，收尾回到实时时钟。
+enum FinishBehavior { stayZero, autoRestart, showEgg }
+
+/// 数字底板外框
+///
+/// 底板的填充与光影仍归界面风格令牌管，本档只覆盖描边那一层：
+/// [follow] 风格自带几细是几细（没给就不画）；[none] 一律去掉；
+/// [thin] 与 [thick] 一律画上，风格没给描边色时取前景色的淡版。
+enum PlateFrame { follow, none, thin, thick }

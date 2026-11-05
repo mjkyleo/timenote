@@ -20,6 +20,7 @@ class ClockTimeDisplay extends StatefulWidget {
   final ClockVisualStyle visualStyle;
   final AnimSpeed speed;
   final ThemeBase themeBase;
+  final PlateFrame plateFrame;
 
   /// 时间源来自 clockSourceProvider，与倒计时共用同一个可注入 seam；
   /// 直接读 DateTime.now() 会让测试跨到真实秒边界，翻页动画双份文本同时在场。
@@ -32,6 +33,7 @@ class ClockTimeDisplay extends StatefulWidget {
     required this.visualStyle,
     required this.speed,
     required this.themeBase,
+    this.plateFrame = PlateFrame.follow,
   });
 
   @override
@@ -75,6 +77,7 @@ class _ClockTimeDisplayState extends State<ClockTimeDisplay> {
       animStyle: widget.animStyle,
       visualStyle: widget.visualStyle,
       themeBase: widget.themeBase,
+      plateFrame: widget.plateFrame,
     );
   }
 }
@@ -86,6 +89,7 @@ class CountdownDisplay extends StatelessWidget {
   final ClockVisualStyle visualStyle;
   final AnimSpeed speed;
   final ThemeBase themeBase;
+  final PlateFrame plateFrame;
 
   const CountdownDisplay({
     super.key,
@@ -94,6 +98,7 @@ class CountdownDisplay extends StatelessWidget {
     required this.visualStyle,
     required this.speed,
     required this.themeBase,
+    this.plateFrame = PlateFrame.follow,
   });
 
   @override
@@ -108,6 +113,7 @@ class CountdownDisplay extends StatelessWidget {
       animStyle: animStyle,
       visualStyle: visualStyle,
       themeBase: themeBase,
+      plateFrame: plateFrame,
     );
   }
 }

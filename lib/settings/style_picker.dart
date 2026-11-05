@@ -241,3 +241,27 @@ String progressDecorName(ProgressDecor d) {
       return '日出日落（背景）';
   }
 }
+
+String finishBehaviorName(FinishBehavior b) {
+  switch (b) {
+    case FinishBehavior.stayZero:
+      return '停留 00:00:00';
+    case FinishBehavior.autoRestart:
+      return '自动重新开始';
+    case FinishBehavior.showEgg:
+      return '弹彩蛋';
+  }
+}
+
+String plateFrameName(PlateFrame f) {
+  switch (f) {
+    case PlateFrame.follow:
+      return '跟随界面风格';
+    case PlateFrame.none:
+      return '去掉外框';
+    case PlateFrame.thin:
+      return '细外框';
+    case PlateFrame.thick:
+      return '粗外框';
+  }
+}
