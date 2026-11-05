@@ -360,3 +360,41 @@ isPrerelease name publishedAt tagName tarballUrl targetCommitish uploadUrl url z
 - **鸿蒙没复跑**：本轮改的全是纯 Dart（`ClipPath`/`Transform`/`ImageFiltered`/`CustomPainter`，没碰平台通道），逻辑上不该打挂 ohos，但没跑就是没跑；§9.9 那组 HAP 字节数不能当本轮数据的引用。
 - **帧率仍未量过**，而且新加的逐帧 `setState` 只作用在进度带子树、只在那三件连续组件下才挂——「一秒一次的动画值不值得每帧重建」没有实测依据。
 - 需求清单里的 R2/R3/R4/R6/R9/R10/R11/R12/R13/R14/R15/R17（整页排版与配色、手动横竖屏、显示单位、待办增强、纪念日提醒、结束三档、数字外框、隐藏系统栏、DIN 字体、包体）**还没动**，这批先把「数字怎么换」和「还剩多少怎么显示」做扎实。
+
+## 十一、第五轮：R11 结束三档 + R12 数字外框
+
+需求出处：2026-11-05 语音清单里的 R11（「倒计时结束行为改成三档可选」）与 R12（「数字外框要能选/能去掉」，参考 flipclocker 的「时间块有外框」）。这两条是纯设置驱动，接着上一轮的 `AppSettingsState` + key + 芯片组 + 主屏行为那条路径做，测试同样钉法。
+
+### 11.1 登记（实测数字）
+
+- `eggEnable`（bool）→ **`FinishBehavior` 三档枚举**：`stayZero` 停留 `00:00:00` / `autoRestart` 自动重开 / `showEgg` 弹彩蛋，存储 key `onFinish`，**默认 `showEgg`**（原 `eggEnable` 默认 `true`，所以默认档没变，这条由「三档默认是弹彩蛋」用例钉住）。
+- 新增 **`PlateFrame` 四档**：`follow` 跟随界面风格 / `none` 去掉 / `thin` 1.5px / `thick` 3px，存储 key `plateFrame`，默认 `follow`（= 本行之前的行为）。
+- 设置页成 10 个键：实测 `AppSettingsNotifier.update` 里 `writeSettings` 的键 **10 条**（`lib/core/providers/app_providers.dart`）；新增键走 `getSetting(key, 默认)` 的缺失回退，老库不会炸。
+- 三档、四档的中文名两两不同各有测试；「倒计时结束」芯片组下面加了一行小字说明约定（`_hint`），因为「停留 / 重开 / 彩蛋」选完当场看不出差别。
+
+### 11.2 三条约定落在哪
+
+- 分发点在 `_ClockViewState._onCountdownFinished(next.total)`（`lib/flip_clock/clock_view.dart:106`），**没有下沉进 `ClockNotifier`**：notifier 只管走时，「归零之后屏幕怎么表现」属于界面；复用的还是上一轮那条 `justFinished` 钩子，`prev.remainTime > 0 && next.remainTime == 0`。
+- 「自动重开用上一次选的时长」= 直接拿这一轮的 `ClockState.total`，不是任何预设默认值。用例特意起一个 **3 秒**的表——既不在快捷预设 5/10/25/45 里，也不在弹窗快捷键 15/30/45/60 里，所以只要 `total` 取错就一定露馅；并且第二轮也得照常归零再重开，以及**点停止就是真停**（`stopCountdown` 之后不再被自动重开拉回倒计时）。
+- 停留档额外钉了一条「归零后再等 6 秒仍然显示 `00:00:00`」——防止彩蛋那条超时切回的路径偷偷跑起来。
+- 外框档**只覆盖描边**：`resolvePlateFrame(frame, tokens)` 返回 `(Color?, double)` 记录（`lib/flip_clock/flip_card_widget.dart:155`），底板填充/圆角/光影仍归界面风格令牌。所以「去掉外框」不会顺手把软胶拟物的双影也去掉；风格没自带描边色时取 `fg.withValues(alpha: 0.42)`，不在黑底上画一条生硬的原色线。
+- 档位从设置一路穿到主屏的链路是 `AppSettingsState.plateFrame` → `ClockTimeDisplay`/`CountdownDisplay` → `FlipCardWidget` → `_Plate`，四处都是显式入参（默认值 `follow`，单独 pump 组件的老测试不用改）。
+
+### 11.3 反向验证（改坏一次、还原一次，都有实测）
+
+- 把 `autoRestart` 分支短路成 `&& false` → `test/app_widget_test.dart` 只有「选『自动重新开始』时用上一轮的时长直接重开」这一例红，其余 24 例绿。
+- 把 `_mainArea` 里 `ClockTimeDisplay` 的 `plateFrame` 写死成 `PlateFrame.follow` → `test/ui_style_test.dart` 出 `+15 -1`，红的正是「外框档位穿过设置一直打到主屏，不只是设置页预览动」；而设置页预览那条（`StylePreview` 自己接档位）**照样绿**。这两条必须同时存在：预览绿不代表主屏绿。
+- 两处改动都已还原（还原后全量 `+168: All tests passed!`）。
+
+### 11.4 本轮数字（实测）
+
+- 测试 160 → **168 例**：`app_widget_test.dart` **25**、`flip_rendering_test.dart` 86、`ui_style_test.dart` **16**、`progress_decor_test.dart` 18、`clock_notifier_test.dart` 12、`storage_service_test.dart` 3、`todo_model_test.dart` 5、`egg_service_test.dart` 3（逐文件 `flutter test <file>` 取 `+N`，与全量 `+168: All tests passed!` 一致）。
+- `flutter analyze` → `No issues found!`。
+- 改动面：代码 9 个文件（lib 7 + test 2，不含 README/REVIEW）实测 `git diff --stat` **+330 / −25**，本轮没有新增文件。
+
+### 11.5 已知代价与边界
+
+- **`eggEnable` 这个 key 直接删了，没写迁移**：老库里若用户手动关过彩蛋，升级后会回到默认的「弹彩蛋」，得再去设置页点一次。当前只有 dev-build 一个真实测试者，为一条布尔养一段兼容代码不值——但这是明说的代价，不是无事发生。
+- **停留档下「继续」按钮是死的**：`resumeCountdown` 在 `remainTime <= Duration.zero` 时直接 return（`lib/core/providers/clock_providers.dart:96`），用户要再点一次预设或自定义才起得了表。要不要把归零态的「继续」换成「重来」，等真机看观感时一并判。
+- 没出包、没跑模拟器截图、鸿蒙没复跑（本轮全是纯 Dart：两个枚举 + 一个入参，没碰平台通道）。
+- 需求清单剩下的：R2 页面居中 / R3 配色割裂 / R4 手动横竖 / R6 显示单位勾选 / R9 待办增强 / R10 纪念日提醒 / R14 DIN 数字字体子集化 / R15 掘金整页设计 / R17 包体积。R13（隐藏系统栏）上一轮已做；R7、R8 按用户原话暂缓。
