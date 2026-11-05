@@ -97,10 +97,11 @@ jobs:
             "$APK_DIR"/app-release.apk \
             apk-sha256.txt
           # 这句只是把结果打印到日志，附件传完之后再失败也不该把整个 run 拖红。
-          # run #9 就是挂在这里（发布本身成功），所以失败原因要写成 annotation：
-          # annotations 接口免登录就能读，日志下载却要 admin 权限。
-          if summary=$(gh release view "$TAG" --json tagName,prerelease,assets \
-              --jq '{tag: .tagName, prerelease: .prerelease, assets: [.assets[].name]}' 2>&1); then
+          # run #9 就是挂在这里（发布本身成功），根因由 run #10 的 annotation 交出来：
+          # `--json prerelease` 是错的字段名，gh 只认 isPrerelease。
+          # 写成 annotation 而不是丢日志，是因为 annotations 接口免登录可读，日志下载却要 admin 权限。
+          if summary=$(gh release view "$TAG" --json tagName,isPrerelease,assets \
+              --jq '{tag: .tagName, prerelease: .isPrerelease, assets: [.assets[].name]}' 2>&1); then
             echo "$summary"
           else
             # 先 tr 掉换行（workflow command 的值必须是单行），再把 % 转义成 %25：

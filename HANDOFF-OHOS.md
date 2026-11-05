@@ -1,6 +1,6 @@
 # 鸿蒙（HarmonyOS / OHOS）构建 —— 进度交接
 
-> 记录时间：2026-11-05 01:35 初版；09:55 更新（递归根因已定位并修好）；**11:20 更新（release HAP 出包 + 包内配置复验 + Android 模拟器真机冒烟 + 修掉横屏键盘压瘪弹窗，测试 62 → 64）**。下面的每一条数字/路径都是当场跑出来的。
+> 记录时间：2026-11-05 01:35 初版；09:55 更新（递归根因已定位并修好）；**11:20 更新（release HAP 出包 + 包内配置复验 + Android 模拟器真机冒烟 + 修掉横屏键盘压瘪弹窗，测试 62 → 64）**；**16:02 更新（CI run #10 真绿：android 13 步全 success、dev-build 5 个附件、`apk-sha256.txt` 4 行；顺带挖出 run #9 红叉的根因是 `gh release view --json prerelease` 字段名写错，正确叫 `isPrerelease`）**。下面的每一条数字/路径都是当场跑出来的。
 
 ---
 
@@ -225,12 +225,19 @@ RunCommandUtil.run(r, undefined, true)   // spawnSync(cmd, ["/d","/c", r], {wind
   - 第 10 步「更新公开预发布 dev-build」`failure`，但**发布其实成功了**：`releases/tags/dev-build` 交出 prerelease `true`、4 个附件全在（`app-arm64-v8a-release.apk` 17,909,554 / `app-armeabi-v7a-release.apk` 15,263,372 / `app-release.apk` 51,432,169 / `apk-sha256.txt` 275），`published_at` 与附件 `updated_at` 都落在第 10 步那 6 秒窗口（06:57:05–11）内，公开直链 `curl -sIL` 三个 APK 全 `200`。
   - 挂的是这一步**最后那句纯打印**：`gh release view "$TAG" --json … --jq '{tag:.tagName, …}'`。前面 `gh release create`/`upload` 都过了，所以是自检输出语句本身非零，不影响产物。**红叉 ≠ 包没发出去**，判断要看 steps 表和 `releases/tags/dev-build`，不能只看 run 的绿/红。
   - ~~待办（不影响使用，只影响 run 变绿）：把那最后一行改成不会失败的写法~~ —— **已改**（见下一条）。
-- [x] run #9 之后对 `.github/workflows/build-apk.yml` 的四处修补（**本地已改并静态校验，尚未跑过一次真实 run**）：
+- [x] run #9 之后对 `.github/workflows/build-apk.yml` 的四处修补（**已提交 `e628133` 推送，并被 run #10 真实验证**）：
   - 最后一句自检改成 `if summary=$(gh release view "$TAG" --json tagName,prerelease,assets --jq '…' 2>&1); then echo "$summary"; else msg=$(printf '%s' "$summary" | tr '\r\n' '  ' | sed 's/%/%25/g'); echo "::warning::…$msg"; fi`。一句纯打印不再能把整个 run 拖红；失败原因走 annotation，因为 `.../logs` 要 admin（本轮实测 403），而 `/check-runs/{id}/annotations` 免登录可读。
   - `apk-sha256.txt` 改成逐个点名 4 个 APK。glob 的坑是实测的：本机 `touch` 出 5 个 apk 后 `ls app-*-release.apk` 只回 3 个分 ABI 包 —— `app-` 之后要一个字面的 `-release.apk`，`*` 匹配空也只能得到 `app--release.apk`。
   - `gh release upload` 的附件清单补上 `app-x86_64-release.apk`（run #9 公开页只有 3 个 APK，x86_64 只在 Artifacts 里），release 正文同步加了一行说明。
   - `upload-artifact` 的 `path:` 拆成 `app-*-release.apk` + `app-release.apk` 两行，`if-no-files-found: error` 保留（两个 pattern 各自都匹配得到文件）。
-  - 校验程度（要说清楚，别当成跑过了）：`node` 按缩进抽出 4 个 `run:` 块（2/7/37/3 行）逐个 `bash -n` 全过，读回内容与 YAML 一致；`yaml 3.1.3` 解析全文件 → android 9 步 / ios 6 步，各 `run` 块行数 1/1/1/3/8/38；转义管道用 `{"100%":"ok"}` + CRLF 的样例实测成单行，已含 `%25` 的串会变成 `%2525`（GitHub 解回来正好是原样，所以顺序是先 `tr` 后 `sed`，反了会二次转义）。**真正的验证要等 run #10**。
+  - 推送前的本地校验程度（当时只能到这个级）：`node` 按缩进抽出 4 个 `run:` 块（2/7/37/3 行）逐个 `bash -n` 全过，读回内容与 YAML 一致；`yaml 3.1.3` 解析全文件 → android 9 步 / ios 6 步，各 `run` 块行数 1/1/1/3/8/38；转义管道用 `{"100%":"ok"}` + CRLF 的样例实测成单行，已含 `%25` 的串会变成 `%2525`（GitHub 解回来正好是原样，所以顺序是先 `tr` 后 `sed`，反了会二次转义）。两套行数来源不同（解析器把块尾换行多算一行），只各自内部一致，不互相核对。
+  - 提交前基线：`flutter analyze` → `No issues found! (ran in 40.7s)`，`flutter test` → `00:19 +86: All tests passed!`。
+- [x] CI **第二轮真实验证：run #10（head `e628133`，2026-11-05，id `41987694469`）—— 真绿**。
+  - `actions/runs/41987694469/jobs`：android job **13 步全 `success`**（含 Set up job / 3 个 Post / Complete job），446 秒（07:30:28→07:37:54），其中「构建 Release APK」独占 306 秒；「记录产物校验和」0 秒、「上传 Actions 产物」6 秒、「更新公开预发布 dev-build」**5 秒 success**。ios `skipped`（按设计，只有手动触发勾选才跑）。
+  - `releases/tags/dev-build` 现在 **5 个附件**（`updated_at` 07:37:31–32）：arm64 17,909,554 / arm32 15,263,372 / **x86_64 19,335,481（新增）** / 通用包 51,432,169 / **`apk-sha256.txt` 357 字节 = 4 行**（run #9 是 275 字节 3 行；差值 82 正好是 `app-release.apk` 那行的长度）。
+  - Artifacts 侧证：`timenote-release-apk` 从 24,897,396 → **48,773,766** 字节，接近翻倍，与「3 分包 52,508,407 → 4 包 103,940,576、压缩率两次都约 47%」一致，所以通用包确实进了 Artifacts，不是巧合。
+  - **run #9 的根因由这次新加的 annotation 交出来**（`/check-runs/127112266223/annotations` 3 条之一）：`Unknown JSON field: "prerelease" / Available fields: apiUrl assets author body createdAt databaseId id isDraft isImmutable isPrerelease name publishedAt tagName tarballUrl targetCommitish uploadUrl url zipballUrl`。即 `gh release view --json` 的字段名是 **`isPrerelease`**，`prerelease` 不存在 —— 红叉从来不是打印玄学，是这一步的 `--json` 参数写错。改之前拿不到这个信息（日志 403），加了兜底第一轮就读到了，annotation 的设计价值被实测验证；gh 的报错本身是多行，也正好走了一遍 `tr`+`sed` 压单行的真场景。
+  - ⚠️ 据此在本地把 `--json tagName,prerelease,assets` / `--jq '{… prerelease: .prerelease …}'` 改成 `isPrerelease`（warning 兜底保留不动）。**这处改动尚未推送、也就尚未经过一次真实 run**：run #10 绿的是「不拖红」，那行 `{tag,prerelease,assets}` 摘要日志到现在仍打不出来。改完的行数随之变成 run 块 2/7/38/3、解析器 1/1/1/3/8/39（同一套抽取脚本复跑过，`bash -n` 与 YAML 解析均通过）。
 - [x] `gradle-wrapper.jar` 这条**已收口，走的是「不提交 jar、删掉 CI 下载步骤」**。理由是从 Flutter 工具源码读出来的，不是猜的：
   - `flutter_cache.dart:539` → `GradleWrapper(Cache cache) : super('gradle_wrapper', cache, DevelopmentArtifact.universal)` —— wrapper 属于 **universal** 产物集，任何跑过命令的 Flutter 安装（含 CI runner）都在 `bin/cache/artifacts/gradle_wrapper/` 里有它，不存在「CI 缓存里没这个 artifact」的失败模式。
   - `gradle_utils.dart:237-239` `getExecutable()` 每次构建 Android 前都会调 `injectGradleWrapperIfNeeded(androidDir)`，把 jar + `gradlew`/`gradlew.bat` 一起拷进 `android/`。
@@ -239,6 +246,10 @@ RunCommandUtil.run(r, undefined, true)   // spawnSync(cmd, ["/d","/c", r], {wind
   - `.github/workflows/build-apk.yml` 里的「恢复 gradle wrapper jar」步骤**已删** —— 少一个 `raw.githubusercontent.com` 的隐性依赖。jar 依旧由 `android/.gitignore:1` 挡在版本库外（`gradlew`/`gradlew.bat` 同理在第 4-5 行），**这就是设计如此，不是待修**。
   - ⚠️ 如果哪天想把 jar 也纳库（为了脱离 Flutter 直接 `./gradlew`）：得先删 `android/.gitignore:1`，而且必须连 `gradlew`/`gradlew.bat` 一起提交，否则 `getExecutable()` 仍要注入脚本，单独提交 jar 省不掉缓存依赖。
   - ✅ **这条不是纸上推理，本机做过等价实验**：把 `android/gradlew`、`android/gradlew.bat`、`android/gradle/wrapper/gradle-wrapper.jar`、`android/local.properties` 四个（= CI 干净检出后实际缺的那四个，`git ls-files android` 里只有 `gradle-wrapper.properties` 入库）移走，`android/` 就和 runner 上的工作树一致；跑 CI 用的同一条命令 `flutter build apk --release --split-per-abi` → `Running Gradle task 'assembleRelease'... 23.9s`，`EXIT=0`，三个 APK 照常出，四个文件全部被重新注入。注入前后 jar 的 `sha256` 相同（`16caeaf…42da`），产物字节数也与移走前完全一致（17,852,071 / 15,238,657 / 19,343,534）。
+- [x] 第四轮改动（CI 修复 + 文档同步，**已提交并推送**）：提交 `e628133`「ci: 修掉 run #9 那句把红叉挂上发布步骤的纯打印自检」，`4 files changed, 62 insertions(+), 14 deletions(-)`（`.github/workflows/build-apk.yml` 21/4、`HANDOFF-OHOS.md` 17/7、`README.md` 9/3、`REVIEW.md` 15/0）。
+  - CRLF 假差异又出现一次：`ios/Runner/GeneratedPluginRegistrant.{h,m}` 在 `git add` 前用 `git checkout -- ios` 还原（依据 `git diff --ignore-cr-at-eol --stat -- ios` 只吐 warning、零行 stat），暂存后 `git status --short | grep -vE "^[MA]  "` 为空，`git diff --cached --name-only | wc -l` = 4。
+  - 作者与推送：`git -c user.name=Ky -c user.email=125885091+mjkyleo@users.noreply.github.com commit` → `git log -1` 交出 `Ky <125885091+mjkyleo@users.noreply.github.com>`（没触发 GH007）；SSH 443 推 → `cdceae9..e628133 main -> main`；`git ls-remote` 的 `refs/heads/main` = `e6281336fcc0876f0ab5c9a42651d5a4e290590d` = 本地 `git rev-parse main`。
+  - ⚠️ 推送后要盯的轮询坑：`api.github.com` 连打 4 次就吃 403（二级限流，`/rate_limit` 当时还剩 47/60，说明不是配额而是频率），改成 45 秒一轮 + 落盘再 `node` 解析才稳定。
 - [x] 当前工作树（2026-11-05 第三轮改动，**已提交并推送**）：提交 `cdceae9`「feat: 翻页动画重做（8 种·绕中缝铰链）+ 沉浸式待机，鸿蒙工程入库」，`59 files changed, 2188 insertions(+), 275 deletions(-)`。
   - 提交前实测：`git status --short` = 17 `M` + 9 `??`；`ios/Runner/GeneratedPluginRegistrant.{h,m}` 这 2 个 CRLF 假差异在 `git add` 前用 `git checkout -- ios` 还原（依据：`git diff --stat --ignore-cr-at-eol -- ios` 零行 stat，只吐 warning），所以最终提交是 **15 个 M + 44 个新文件 = 59**，与 `git diff --cached --name-only | wc -l` 一致；暂存后 `git status --short | grep -vE "^[MA]  "` 为空，确认没漏也没多。
   - 入库前扫过密钥：对**将要 add 的 44 个文件**（不是整个目录，`ohos/entry/build/**` 的缓存不在内）`grep -niE "password|secret|token|BEGIN (RSA|OPENSSH)|api[_-]?key"`，只有 `assets/icon/*.png` 因二进制字节撞词命中，`ohos/build-profile.json5` 是 `"signingConfigs": []` 空数组，无凭据。⚠️ `tool/ohos_env.sh` 里有本机路径（含 Windows 用户名 `86132` 与盘符），是设计如此（当作「仓库内正本」），不是泄露。
@@ -257,7 +268,7 @@ RunCommandUtil.run(r, undefined, true)   // spawnSync(cmd, ["/d","/c", r], {wind
 | --- | --- |
 | 构建命令 | `D:\dev\flutter\bin\flutter.bat build apk --debug` / `--release`（标准 SDK，3.47.8） |
 | 产物目录 | `build/app/outputs/flutter-apk/`（每个 apk 旁边都有 `.sha1`） |
-| 公开分发 | **已真实验证（run #9，`cdceae9`）**：`dev-build` 预发布由 CI 创建并发布，4 个附件都在，公开直链免登录 `curl -sIL` 全部 `200` —— `app-arm64-v8a-release.apk` 17,909,554 / `app-armeabi-v7a-release.apk` 15,263,372 / `app-release.apk` 51,432,169 / `apk-sha256.txt` 275。⚠️ 云端 arm64 与本机 arm64（17,917,607）**字节数与 sha256 都不同**：Runner 用的是它自己现生成的 `~/.android/debug.keystore`，签名块不一样，别拿本机哈希去核对云端附件。⚠️ run #9 那份 `apk-sha256.txt` 里没有通用包（`app-*-release.apk` 这个 glob 匹配不到 `app-release.apk`，本机实验过：`touch` 5 个 apk 后 `ls` 只回 3 个），且公开页少 `app-x86_64-release.apk` —— **两处都已在本地改掉，等 run #10 出真附件才算验证**，所以现在 Releases 页看到的仍是 3 APK + 3 行校验和。 |
+| 公开分发 | **已真实验证（run #10，`e628133`）**：`dev-build` 由 CI 更新，**5 个附件全在** —— `app-arm64-v8a-release.apk` 17,909,554 / `app-armeabi-v7a-release.apk` 15,263,372 / `app-x86_64-release.apk` 19,335,481 / `app-release.apk` 51,432,169 / `apk-sha256.txt` 357 字节（4 行，通用包已在内，run #9 那份是 275 字节 3 行）。run #10 的 android job 13 步全 `success`，「更新公开预发布 dev-build」5 秒过。⚠️ 云端 arm64 与本机 arm64（17,917,607）**字节数与 sha256 都不同**：Runner 用的是它自己现生成的 `~/.android/debug.keystore`，签名块不一样，别拿本机哈希去核对云端附件。⚠️ **本机拿不到 `releases/download/...` 直链的完整文件**：`curl -sL` 走 github.com 会被截（实测 17,909,554 只落到 3,134,272 就断），改用 `api.github.com/.../releases/assets/{id}` + `Accept: application/octet-stream` 能拿到 `apk-sha256.txt` 这类小附件全文；大 APK 的「下载回来复核 sha256」这件事在本机网络条件下**没做成**，所以哈希只核到了「清单内容 = 4 个正确文件名 + 4 个 64 位十六进制串」这一级，没核到「附件字节确实等于清单所说的那份」。 |
 | 签名 | Release 用 debug keystore，能装能自用，不能上 Google Play |
 
 本次重建（2026-11-05 11:10–11:12，已含 §6.6 的弹窗修复）实测大小：

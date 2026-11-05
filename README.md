@@ -166,7 +166,7 @@ D:\dev\flutter\bin\flutter.bat build apk --release   # → build/app/outputs/flu
 
 | 平台 | 能不能装 | 在哪拿 |
 | --- | --- | --- |
-| **Android 平板** | ✅ 可直接安装 | Release 页的 `dev-build` 预发布（公开直链，免登录、不过期）：`app-arm64-v8a-release.apk`（平板优先）、`app-armeabi-v7a-release.apk`、`app-x86_64-release.apk`（模拟器/Chromebook，run #10 起才上传）、`app-release.apk`（通用包）；另附 `apk-sha256.txt` 校验和（run #9 那份 275 字节只算了 3 个分 ABI 包，缺通用包那行是本地刚补的） |
+| **Android 平板** | ✅ 可直接安装 | Release 页的 `dev-build` 预发布（公开直链，免登录、不过期）：`app-arm64-v8a-release.apk`（平板优先）、`app-armeabi-v7a-release.apk`、`app-x86_64-release.apk`（模拟器/Chromebook）、`app-release.apk`（通用包）；另附 `apk-sha256.txt` 校验和（4 行，run #10 起含通用包） |
 | Android（同批产物） | ✅ | 每次 run 的 Artifacts `timenote-release-apk`（要登录 GitHub，默认保留 90 天） |
 | **iPad** | ❌ 装不上真机 | 只在手动触发勾选 `ios` 时构建（`flutter build ios --no-codesign`），产物是未签名 `Runner.app.zip`。要能装必须在仓库 secrets 里放 Apple 签名凭据，走 Xcode 签好再上 TestFlight/Ad Hoc |
 | **华为鸿蒙平板** | ⚠️ 本机能出包，云端出不了 | 本机 `tool/build_hap.sh` → `build/ohos/hap/entry-default-unsigned.hap`（**未签名，装不上真机**；调试证书要华为账号在 DevEco 里申请）。GitHub Runner 拿不到 Flutter-OH SDK + 华为 Command Line Tools（在华为账号墙后），所以 CI 不构建鸿蒙 |
@@ -179,12 +179,22 @@ git push   # 云端构建完自动覆盖 dev-build 预发布的附件
 - 应用图标 PNG 已经在仓库里（`android/app/src/main/res/mipmap-*/ic_launcher.png`，5 个 dpi），提示音 `alert.wav` 也在。`gradle-wrapper.jar` / `gradlew` **故意不入库**：Flutter 把 wrapper 归在 `DevelopmentArtifact.universal` 缓存产物里，每次构建 Android 前都会注入且**不覆盖已存在的文件**（`gradle_utils.dart:261-264`），所以 CI 原来那段 `curl` 下载步骤已删。本机验证方式：把 `gradlew`/`gradlew.bat`/jar/`local.properties` 四个移走模拟干净检出，`flutter build apk --release --split-per-abi` 仍然 23.9 s 出包并把四个文件补回来。
 - `dev-build` 这个 tag 由 CI 自己创建并复用，每次推 main 覆盖同名附件，所以永远只有一个「最新开发版」，不会攒一堆 release。
 
-**首轮真实验证（run #9，`cdceae9`，2026-11-05）**：`拉取依赖 / 静态分析 / 运行测试 / 构建 Release APK / 校验和 / Artifacts` 六步全绿，`dev-build` 预发布被创建并发布出来，4 个附件都在，公开直链免登录就能拿到（`curl -sIL` 三个 APK 全部 `200`）：arm64 **17,909,554**、arm32 **15,263,372**、通用包 **51,432,169**、`apk-sha256.txt` 275 字节。
+**首轮真实验证（run #9，`cdceae9`）**：构建链全绿，`dev-build` 预发布被创建并发布出来，但 run 结论是 `failure` —— 挂的是最后一步里那句纯打印的自检（步骤只跑了 6 秒，附件那时已经传完），所以是「红叉但包已经发出去了」。要区分「没发出去」和「发出去后自检语句挂了」，看 run 的 steps 表而不是看红叉。
 
-- ⚠️ **但这次 run 的结论是 `failure`**：挂的是最后一步里那句纯打印的 `gh release view --json … --jq …`（步骤只跑了 6 秒，附件那时已经传完），所以是「红叉但包已经发出去了」。要区分「没发出去」和「发出去后自检语句挂了」，看 run 的 steps 表而不是看红叉。**已修**：那句现在包在 `if summary=$(… 2>&1)` 里，失败时改发一行 `::warning::` annotation（值里 `%`→`%25`、CR/LF→空格，单行才不会被 workflow command 解析截断），发布成功就不再因为一句打印变红。
+**第二轮真实验证（run #10，`e628133`，2026-11-05）**：android job **13 步全 `success`**（446 秒，其中构建 APK 306 秒），ios 按设计 skipped。`dev-build` 现在是 5 个附件，公开直链免登录可拿：
+
+| 附件 | 字节 |
+| --- | --- |
+| `app-arm64-v8a-release.apk`（平板优先） | 17,909,554 |
+| `app-armeabi-v7a-release.apk`（很老的 32 位机） | 15,263,372 |
+| `app-x86_64-release.apk`（模拟器 / Chromebook） | 19,335,481 |
+| `app-release.apk`（通用包） | 51,432,169 |
+| `apk-sha256.txt` | 357（4 行，通用包也在内） |
+
+- ✅ run #9 那句拖红的打印**已修且已生效**：现在包在 `if summary=$(… 2>&1)` 里，失败时发一行 `::warning::` annotation（值先 `tr '\r\n' '  '` 压单行、再 `sed 's/%/%25/g'`），第 10 步 5 秒 `success`。选 annotation 而不是丢日志，是因为日志下载接口要 admin 权限（实测 403），`/check-runs/{id}/annotations` 免登录就能读。
+- ✅ **顺带把 run #9 的根因挖了出来**：那条 annotation 把 gh 的原文带出来了 —— `Unknown JSON field: "prerelease" … Available fields: … isPrerelease …`。所以不是打印玄学失败，是 `--json` 字段名写错，gh 的字段叫 `isPrerelease`。据此已把 `--json`/`--jq` 改成 `isPrerelease`（warning 兜底保留），**这处改动还在本地，没推送也就还没过一次真实 run**：run #10 绿的是「不拖红」，那行摘要日志目前仍打不出来。
+- ✅ `apk-sha256.txt` 从 275 字节 3 行变成 357 字节 4 行。根因不是笔误而是 glob：`app-*-release.apk` 匹配不到 `app-release.apk`（`app-` 之后还要一个字面的 `-release.apk`，`*` 匹配空也只凑得出 `app--release.apk`）—— 本机 `touch` 出 5 个 apk 跑 `ls` 实测过，现在改成逐个点名。Artifacts 也同步确认：`timenote-release-apk` 从 24,897,396 涨到 48,773,766 字节（接近翻倍，与 3 包→4 包的比例一致）。
 - ⚠️ **云端包与本机包不是同一份字节**：本机 arm64 是 17,917,607，云端是 17,909,554，sha256 也不同。原因是 debug keystore 在 Runner 上是那台机器自己现生成的，签名块不一样 —— 所以**别拿本机 sha256 去核对云端附件**，要比就比 `apk-sha256.txt` 里云端自己算的那组。
-- ~~小瑕疵：`apk-sha256.txt` 里只有三个分 ABI 包，没有通用包 `app-release.apk`~~ —— **已修**：那一步改成逐个点名 4 个 APK。根因实测过：`app-*-release.apk` 这个 glob 真的匹配不到 `app-release.apk`（`app-` 之后还要一个字面的 `-release.apk`，`*` 匹配空也凑不出第二个连字符），本机建 4 个空文件跑 `ls` 验证，只出 3 个。同一轮把 `app-x86_64-release.apk` 也加进了 `gh release upload` 的附件清单（run #9 只传了 3 个 APK，x86_64 只在 Artifacts 里）。
-- ⚠️ 上述三处修改**只做过本地校验**（4 个 `run:` 块 `bash -n` 全过、YAML 解析出 android 9 步 / ios 6 步、escaping 管道用带 `%` 和 CRLF 的样例实测成单行），**还没有过一次真实的 Actions 运行**，要等下一次 push 的 run #10 才算验证。
 
 ## 🖼 界面风格（11 套整屏令牌）
 

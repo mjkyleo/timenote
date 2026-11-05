@@ -263,7 +263,7 @@ emulator -avd trace_pixel7 -no-window -no-snapshot-save -no-boot-anim -no-audio 
 
 推上去后 run #9 结论 `failure`，但逐步骤查（`actions/runs/41983168374/jobs`）发现**前 9 步全绿**，包括之前一直担心的三处改动：删图标步骤、删 gradle wrapper 下载步骤、audioplayers 覆盖移出 `pubspec.yaml`。干净 Runner 上 `flutter analyze` + `flutter test`（86 例）+ `build apk` 全过。
 
-唯一挂的是第 10 步「更新公开预发布 dev-build」，而**发布实际成功了**：`releases/tags/dev-build` 交出 prerelease `true` + 4 个附件全在，`published_at`（06:57:06）与附件 `updated_at`（06:57:08–10）都落在那一步 6 秒窗口（06:57:05–11）内，公开直链 `curl -sIL` 三个 APK 全 `200`。失败点是这一步**最后那句纯打印** `gh release view --json … --jq …`，前面的 `gh release create`/`upload` 都过了。
+唯一挂的是第 10 步「更新公开预发布 dev-build」，而**发布实际成功了**：`releases/tags/dev-build` 交出 prerelease `true` + 4 个附件全在，`published_at`（06:57:06）与附件 `updated_at`（06:57:08–10）都落在那一步 6 秒窗口（06:57:05–11）内，公开直链 `curl -sIL` 三个 APK 全 `200`。失败点是这一步**最后那句纯打印** `gh release view --json … --jq …`，前面的 `gh release create`/`upload` 都过了。当时只能定位到「哪一句」，拿不到「为什么」（日志接口 403）；为什么是 run #10 的 annotation 交出来的，见 §9.11。
 
 结论与教训：
 - **红叉 ≠ 包没发出去**。判断要看 steps 表和 `releases/tags/dev-build`，不能只看 run 的绿/红。
@@ -272,4 +272,24 @@ emulator -avd trace_pixel7 -no-window -no-snapshot-save -no-boot-anim -no-audio 
 - 待修（不影响使用，只影响 run 变绿）→ **已修**：最后一行自检改成 `if summary=$(gh release view … --jq … 2>&1); then echo; else echo "::warning::…$msg"; fi`，一句打印不再能把整个 run 拖红，失败原因以 annotation 呈现。选 annotation 而不是 `::error::` 是因为它天然只当警告；而写 annotation 而非丢进日志，是因为 `actions/runs/{id}/logs` 要 admin 权限（本轮 403 过），`/check-runs/{id}/annotations` 免登录就能读。
   - workflow command 的值是**单行**协议，所以 `$summary` 先 `tr '\r\n' '  '` 再 `sed 's/%/%25/g'`（顺序不能反，反了会把刚插进的 `%25` 又转一遍）。这条管道用 `{"100%":"ok"}` + CRLF 混排做过实样验证，输出为单行且 `%`→`%2525` 这种已转义内容能正确保持。
 - 同时把 `app-x86_64-release.apk` 补进了 `gh release upload` 的附件清单（run #9 只公开了 3 个 APK，x86_64 只在 Artifacts 里），`upload-artifact` 的 `path:` 改成 `app-*-release.apk` + `app-release.apk` 两行，`if-no-files-found: error` 保持不动（两个 pattern 各自都至少匹配一个文件，不会误报）。
-- 本轮 workflow 改动的验证只到「本地静态」这一级：4 个 `run:` 块逐个抽出跑 `bash -n` 全过（2/7/37/3 行，抽取脚本按缩进去重，读回内容与 YAML 逐行一致），整文件用 `yaml 3.1.3` 解析出 android 9 步 / ios 6 步、各 `run` 步行数 1/1/1/3/8/38。两套行数来源不同（解析器把块尾换行多算一行），只做各自内部一致性检查，不互相核对。**真实跑一次要等 run #10**。
+- 本轮 workflow 改动的验证只到「本地静态」这一级：4 个 `run:` 块逐个抽出跑 `bash -n` 全过（2/7/37/3 行，抽取脚本按缩进去重，读回内容与 YAML 逐行一致），整文件用 `yaml 3.1.3` 解析出 android 9 步 / ios 6 步、各 `run` 步行数 1/1/1/3/8/38。两套行数来源不同（解析器把块尾换行多算一行），只做各自内部一致性检查，不互相核对。**真实跑一次要等 run #10**（见 §9.11，那次跑完之后行数是 2/7/38/3 与 1/1/1/3/8/39，因为又补了一行注释并改对了字段名）。
+
+### 9.11 run #10（head `e628133`）：真绿了，而且把 run #9 的根因挖了出来
+
+推上去 446 秒（07:30:28→07:37:54，构建 APK 那步独占 306 秒）后 `android` job **13 步全 `success`**（含 Set up job / 3 个 Post / Complete job），`ios` 按设计 `skipped`。这轮 workflow 的三处修改在干净 Runner 上都成立：`记录产物校验和` 0 秒过、`上传 Actions 产物` 6 秒过、`更新公开预发布 dev-build` **5 秒 `success`**。
+
+**发布结果实测**（`releases/tags/dev-build`，附件 `updated_at` 全部 07:37:31–32）：5 个附件 —— `app-arm64-v8a-release.apk` 17,909,554 / `app-armeabi-v7a-release.apk` 15,263,372 / `app-x86_64-release.apk` **19,335,481**（run #9 公开页没有它）/ `app-release.apk` 51,432,169 / `apk-sha256.txt` **357 字节 = 4 行**（run #9 那份 275 字节 3 行；357−275=82 正好是 `app-release.apk` 那一行的长度）。
+
+**Artifacts 也真的多装了通用包**：`timenote-release-apk` 从 run #9 的 24,897,396 涨到 48,773,766 字节，接近翻倍 —— 与「3 个分包原始 52,508,407 → 4 个包 103,940,576」的比例吻合（两次的 zip 压缩率都稳定在 ~47%），所以不是巧合而是 `path:` 拆行起了作用。
+
+**根因（这条是本轮最实的收获）**：`/check-runs/127112266223/annotations` 交出 3 条注解，其中一条正是新加的 warning，原文把 gh 的报错整段带出来了：
+
+```
+dev-build 已发布（附件见 Releases 页），但自检打印失败：Unknown JSON field: "prerelease"
+Available fields: apiUrl assets author body createdAt databaseId id isDraft isImmutable
+isPrerelease name publishedAt tagName tarballUrl targetCommitish uploadUrl url zipballUrl
+```
+
+所以 run #9 的红叉不是「打印语句玄学失败」，是 **`--json` 字段名写错**：gh 的字段叫 `isPrerelease`，没有 `prerelease`。这条错误在改之前无法知道（日志下载 403），加了 annotation 兜底之后第一轮就拿到了 —— 兜底设计的价值被实测证明了，转义管道也是真场景：gh 的错误是多行输出，经 `tr`+`sed` 压成单行才进得了 annotation。
+
+据此把字段名改对（`--json tagName,isPrerelease,assets` + `--jq '{… prerelease: .isPrerelease …}'`），warning 分支保留不动 —— 它现在是「以后同类错误还能被读到」的保险，不是这次的补丁。**这处改动在本地，尚未推送、也就尚未经过一次真实 run**；run #10 绿的是「不拖红」，`{tag,prerelease,assets}` 那行日志目前仍打不出来。
