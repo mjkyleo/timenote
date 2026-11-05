@@ -4,6 +4,7 @@ import 'package:timenote/core/constants.dart';
 import 'package:timenote/flip_clock/flip_card_widget.dart';
 import 'package:timenote/flip_clock/flip_renderer.dart';
 import 'package:timenote/settings/enum_def.dart';
+import 'package:timenote/settings/style_picker.dart';
 
 /// 渲染层回归测试：
 /// 1) 翻页动画在静止态必须只剩新数字（历史 bug：经典翻牌停在 180° 镜像态）
@@ -11,6 +12,7 @@ import 'package:timenote/settings/enum_def.dart';
 /// 3) 只有真的变了的格子才翻页
 /// 4) 10 种数字样式必须两两可辨（历史 bug：只有字体名不同，字体未打包时画面完全一样）
 /// 5) 数字必须自适应缩放，不能溢出屏幕
+/// 6) 逐格错开起跑的动画必须真的错开，且总时长不许失控
 void main() {
   const samples = <FlipAnimStyle, FlipRenderer>{
     FlipAnimStyle.flipCard: FlipCardRenderer(),
@@ -20,6 +22,29 @@ void main() {
     FlipAnimStyle.fadeFlip: FadeFlipRenderer(),
     FlipAnimStyle.tickerRoll: TickerRollRenderer(),
     FlipAnimStyle.dropSettle: DropSettleRenderer(),
+    // 动效实验室第一批：翻折
+    FlipAnimStyle.diagFold: DiagFoldRenderer(),
+    FlipAnimStyle.bounceFlip: BounceFlipRenderer(),
+    FlipAnimStyle.cardFlip: CardFlipRenderer(),
+    // 动效实验室第一批：位移
+    FlipAnimStyle.slideAcross: SlideAcrossRenderer(),
+    FlipAnimStyle.cascade: CascadeRenderer(),
+    // 动效实验室第一批：遮罩
+    FlipAnimStyle.blind: BlindRenderer(),
+    FlipAnimStyle.iris: IrisRenderer(),
+    FlipAnimStyle.polygon: PolygonRenderer(),
+    // 动效实验室第一批：形变
+    FlipAnimStyle.crossfade: CrossfadeRenderer(),
+    FlipAnimStyle.blurFocus: BlurFocusRenderer(),
+    FlipAnimStyle.jelly: JellyRenderer(),
+    // 动效实验室第二批：碎片
+    FlipAnimStyle.pixelShuffle: PixelShuffleRenderer(),
+    FlipAnimStyle.particleScatter: ParticleScatterRenderer(),
+    FlipAnimStyle.shardBurst: ShardBurstRenderer(),
+    // 动效实验室第二批：光学
+    FlipAnimStyle.fluidDissolve: FluidDissolveRenderer(),
+    FlipAnimStyle.liquidGlass: LiquidGlassRenderer(),
+    FlipAnimStyle.crtScan: CrtScanlineRenderer(),
   };
 
   Widget bare(Widget child) => Directionality(
@@ -188,15 +213,6 @@ void main() {
   });
 
   group('混合轮换', () {
-    test('轮换表覆盖其余全部动画，且不会把自已排进去', () {
-      expect(flipMixCycle, isNot(contains(FlipAnimStyle.autoMix)));
-      expect(
-        flipMixCycle.toSet(),
-        FlipAnimStyle.values.toSet().difference({FlipAnimStyle.autoMix}),
-        reason: '既然叫混合轮换，就得真的能用上其余每一种效果',
-      );
-    });
-
     testWidgets('连续翻页确实换效果，而不是永远同一种', (tester) async {
       Widget clock(String text) => FlipCardWidget(
             content: text,
@@ -215,11 +231,17 @@ void main() {
           home: Scaffold(body: SizedBox(width: 400, height: 200, child: clock(to))),
         ));
         await tester.pump(const Duration(milliseconds: 60));
+        // 只数牌子里的变换：MaterialApp 自带 4 个位移包装，会把中间态差异冲淡
+        Finder inClock(Type t) => find.descendant(
+              of: find.byType(FlipCardWidget),
+              matching: find.byType(t),
+            );
         final shapes = <String>{
-          for (final t in tester.widgetList<Transform>(find.byType(Transform)))
-            '${t.alignment}:${t.transform[5].toStringAsFixed(1)}',
-          for (final f in tester.widgetList<FractionalTranslation>(
-              find.byType(FractionalTranslation)))
+          for (final tr in tester
+              .widgetList<Transform>(inClock(Transform)))
+            '${tr.alignment}:${tr.transform[5].toStringAsFixed(1)}',
+          for (final f in tester
+              .widgetList<FractionalTranslation>(inClock(FractionalTranslation)))
             'slide:${f.translation.dx.toStringAsFixed(1)},${f.translation.dy.toStringAsFixed(1)}',
         };
         return shapes;
@@ -240,6 +262,135 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(shapes.length, greaterThan(2),
           reason: '连续 5 次翻页只看到 ${shapes.length} 种中间态，混合轮换没生效');
+    });
+  });
+
+  group('动效批次登记', () {
+    test('每种动画都登记了渲染器与中文名，能进池的都在池里', () {
+      for (final s in FlipAnimStyle.values) {
+        expect(getRenderer(s), isNot(isNull), reason: '$s 没有渲染器');
+        expect(flipAnimName(s), isNotEmpty, reason: '$s 没有中文名');
+        if (s == FlipAnimStyle.autoMix) continue;
+        expect(samples.containsKey(s), isTrue,
+            reason: '$s 没进渲染层回归样本，新加的动画会漏测');
+        if (!poolExcludedStyles.contains(s)) {
+          expect(flipMixCycle, contains(s),
+              reason: '$s 既不是仅收尾也不是贵切片，就该被混合轮换用到');
+        }
+      }
+    });
+
+    test('中文名两两不同，用户在设置页里分得清', () {
+      final names = {for (final s in FlipAnimStyle.values) flipAnimName(s)};
+      expect(names.length, FlipAnimStyle.values.length);
+    });
+
+    test('仅收尾与高频慎用的动画不许进每秒轮换的池子', () {
+      expect(flipMixCycle, isNot(contains(FlipAnimStyle.autoMix)));
+      expect(
+        flipMixCycle.toSet(),
+        FlipAnimStyle.values
+            .toSet()
+            .difference({FlipAnimStyle.autoMix})
+            .difference(poolExcludedStyles),
+        reason: '池子必须正好等于「每秒可用」那一档，多一种少一种都是漏登记',
+      );
+      for (final s in {...finaleOnlyStyles, ...cautionStyles}) {
+        expect(poolExcludedStyles, contains(s),
+            reason: '$s 实验室标了仅收尾/高频慎用，却还留在轮换池里');
+      }
+    });
+
+    testWidgets('碎片类的散开方向逐帧稳定，只会往原位收不会抖成噪点', (tester) async {
+      // 散开向量靠 sin-hash 取种子（与 t 无关），所以同一块碎片每一帧都在同一条飞行线上
+      Future<List<Offset>> piecesAt(FlipRenderer r, double t) async {
+        await tester.pumpWidget(Directionality(
+          textDirection: TextDirection.ltr,
+          child: r.transition(
+            newChild: const Text('8', textDirection: TextDirection.ltr),
+            t: t,
+          ),
+        ));
+        final list = tester
+            .widgetList<FractionalTranslation>(find.byType(FractionalTranslation))
+            .map((f) => f.translation)
+            .toList();
+        expect(list, isNotEmpty, reason: '$r 在 t=$t 没有碎片在飞');
+        return list;
+      }
+
+      for (final r in const [
+        PixelShuffleRenderer(),
+        ParticleScatterRenderer(),
+        ShardBurstRenderer(),
+      ]) {
+        final early = await piecesAt(r, 0.15);
+        final middle = await piecesAt(r, 0.5);
+        expect(middle.length, early.length,
+            reason: '$r 半途碎片数量变了，说明有碎片提前消失或凭空冒出来');
+        for (var i = 0; i < early.length; i++) {
+          expect(early[i].distance, greaterThan(0),
+              reason: '$r 第 $i 块碎片一开始就没散开');
+          expect(early[i].dx * middle[i].dx + early[i].dy * middle[i].dy,
+              greaterThanOrEqualTo(0),
+              reason: '$r 第 $i 块碎片中途改了方向：${early[i]} → ${middle[i]}');
+          expect(middle[i].distance, lessThanOrEqualTo(early[i].distance),
+              reason: '$r 第 $i 块碎片越飞越远：${early[i]} → ${middle[i]}');
+        }
+        expect(tester.takeException(), isNull);
+      }
+    });
+  });
+
+  group('逐格错开（级联）', () {
+    Widget clock(String text, Duration dur) => FlipCardWidget(
+          content: text,
+          animDur: dur,
+          animStyle: FlipAnimStyle.cascade,
+          visualStyle: ClockVisualStyle.boldPower,
+          themeBase: ThemeBase.dark,
+        );
+
+    double dyAt(WidgetTester tester, int cell) {
+      final t = tester.widgetList<FractionalTranslation>(find.descendant(
+        of: find.byKey(ValueKey('cell$cell')),
+        matching: find.byType(FractionalTranslation),
+      )).last;
+      return t.translation.dy;
+    }
+
+    testWidgets('同一时刻越靠后的格子落得越少，且收尾能归位', (tester) async {
+      const base = Duration(milliseconds: 200);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: SizedBox(width: 600, height: 300, child: clock('11:11', base))),
+      ));
+      await tester.pumpAndSettle();
+      // 五个字符格同时变化，才有先后可比
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: SizedBox(width: 600, height: 300, child: clock('22:22', base))),
+      ));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      final first = dyAt(tester, 0);
+      final last = dyAt(tester, 4);
+      expect(first, greaterThan(last),
+          reason: '级联必须是从左往右依次落，实测首格 $first 末格 $last');
+      expect(last, lessThan(0), reason: '末格此时应该还在格子上方没落到位');
+
+      // 错开量按时长比例摊，末格最多晚 40% 落位，不许贴着下一次变化才到
+      await tester.pumpAndSettle();
+      // 只量自己这块牌子：空的 MaterialApp + Scaffold 里本来就挂着 4 个位移包装
+      expect(
+        find.descendant(
+          of: find.byType(FlipCardWidget),
+          matching: find.byType(FractionalTranslation),
+        ),
+        findsNothing,
+        reason: '收尾后不许留下位移包装',
+      );
+      expect(tester.takeException(), isNull);
     });
   });
 

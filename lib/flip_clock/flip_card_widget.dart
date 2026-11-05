@@ -182,22 +182,21 @@ class _FlipBoardState extends State<_FlipBoard> {
   Widget build(BuildContext context) {
     final chars = widget.content.split('');
     final cellWidth = _digitCellWidth();
-    // 滑动/滚筒/落体都会把牌子推出格子，不裁就会糊到相邻格和底板外面
-    return ClipRect(
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          for (final (index, char) in chars.indexed)
-            _FlipCell(
-              key: ValueKey('cell$index'),
-              char: char,
-              style: widget.style,
-              animDur: widget.animDur,
-              minWidth: _isDigit(char) ? cellWidth : 0,
-              pick: () => _styleAt(index),
-            ),
-        ],
-      ),
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (final (index, char) in chars.indexed)
+          _FlipCell(
+            key: ValueKey('cell$index'),
+            char: char,
+            style: widget.style,
+            animDur: widget.animDur,
+            index: index,
+            cellCount: chars.length,
+            minWidth: _isDigit(char) ? cellWidth : 0,
+            pick: () => _styleAt(index),
+          ),
+      ],
     );
   }
 
@@ -225,6 +224,10 @@ class _FlipCell extends StatefulWidget {
   final TextStyle style;
   final Duration animDur;
 
+  /// 这一格在整串里的序号与总格数（级联错位用它算起跑偏移）
+  final int index;
+  final int cellCount;
+
   /// 格子宽度下限（数字格锁宽，符号格传 0）
   final double minWidth;
 
@@ -236,6 +239,8 @@ class _FlipCell extends StatefulWidget {
     required this.char,
     required this.style,
     required this.animDur,
+    required this.index,
+    required this.cellCount,
     required this.minWidth,
     required this.pick,
   });
@@ -246,6 +251,12 @@ class _FlipCell extends StatefulWidget {
 
 class _FlipCellState extends State<_FlipCell>
     with SingleTickerProviderStateMixin {
+  /// 级联错位的总错开量占基础时长的比例。
+  ///
+  /// 实验室原样是「每位错开 78ms」，那是四位数字的量；这里是 HH:MM:SS 八格，
+  /// 78ms × 7 = 546ms 会让秒位贴着下一次变化才落位，所以改成按时长比例摊。
+  static const double _spreadRatio = 0.4;
+
   late final AnimationController _controller = AnimationController(
     vsync: this,
     duration: widget.animDur,
@@ -256,6 +267,9 @@ class _FlipCellState extends State<_FlipCell>
   late String _shown = widget.char;
   Widget? _outgoing;
   late FlipAnimStyle _flipStyle = widget.pick();
+
+  /// 这一格的起跑偏移（占本次时长的比例），只有级联一类会用到
+  double _delay = 0;
 
   @override
   void initState() {
@@ -271,9 +285,12 @@ class _FlipCellState extends State<_FlipCell>
   @override
   void didUpdateWidget(_FlipCell oldWidget) {
     super.didUpdateWidget(oldWidget);
+    // 时长可能被设置页改过，即使这格没变也要跟上；变了才重新算错开量
     _controller.duration = widget.animDur;
+    _delay = 0;
     if (oldWidget.char == widget.char) return;
     _flipStyle = widget.pick();
+    _applyTiming(_flipStyle);
     setState(() {
       _outgoing = _glyph(_shown);
       _shown = widget.char;
@@ -285,6 +302,21 @@ class _FlipCellState extends State<_FlipCell>
   void dispose() {
     _controller.dispose();
     super.dispose();
+  }
+
+  /// 按本格选中的动画决定要不要拉长时长并推迟起跑
+  void _applyTiming(FlipAnimStyle style) {
+    if (!staggeredStyles.contains(style) || widget.cellCount <= 1) {
+      _controller.duration = widget.animDur;
+      _delay = 0;
+      return;
+    }
+    final stepUs = (widget.animDur.inMicroseconds * _spreadRatio /
+            (widget.cellCount - 1))
+        .round();
+    final total = widget.animDur + Duration(microseconds: stepUs * widget.index);
+    _controller.duration = total;
+    _delay = (stepUs * widget.index) / total.inMicroseconds;
   }
 
   Widget _glyph(String text) => Text(
@@ -299,21 +331,28 @@ class _FlipCellState extends State<_FlipCell>
   Widget build(BuildContext context) {
     final current = _glyph(widget.char);
     final outgoing = _outgoing;
-    final face = outgoing == null
-        ? current
-        : AnimatedBuilder(
-            animation: _controller,
-            builder: (context, _) => getRenderer(_flipStyle).transition(
-              newChild: current,
-              oldChild: outgoing,
-              t: _controller.value,
-            ),
-          );
-    if (widget.minWidth <= 0) return face;
+    Widget? face;
+    if (outgoing != null) {
+      face = AnimatedBuilder(
+        animation: _controller,
+        builder: (context, _) => getRenderer(_flipStyle).transition(
+          newChild: current,
+          oldChild: outgoing,
+          t: _controller.value,
+          delay: _delay,
+        ),
+      );
+      // 会把牌子推出格子的动画必须逐格裁，否则数字会糊到相邻格和底板外面
+      if (offCellStyles.contains(_flipStyle)) {
+        face = ClipRect(child: face);
+      }
+    }
+    final content = face ?? current;
+    if (widget.minWidth <= 0) return content;
     // 格宽锁到最宽的那位数字：换成窄的「1」时整排牌子不会左右抖
     return ConstrainedBox(
       constraints: BoxConstraints(minWidth: widget.minWidth),
-      child: face,
+      child: content,
     );
   }
 }

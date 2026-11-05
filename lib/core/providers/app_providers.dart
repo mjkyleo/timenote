@@ -9,6 +9,7 @@ class AppSettingsState {
   final FlipAnimStyle flipAnimStyle;
   final ClockVisualStyle clockVisualStyle;
   final AnimSpeed animSpeed;
+  final ProgressDecor progressDecor;
   final bool keepScreenOn;
   final bool eggEnable;
   final bool soundEnable;
@@ -19,6 +20,7 @@ class AppSettingsState {
     required this.flipAnimStyle,
     required this.clockVisualStyle,
     required this.animSpeed,
+    required this.progressDecor,
     required this.keepScreenOn,
     required this.eggEnable,
     required this.soundEnable,
@@ -30,6 +32,7 @@ class AppSettingsState {
     FlipAnimStyle? flipAnimStyle,
     ClockVisualStyle? clockVisualStyle,
     AnimSpeed? animSpeed,
+    ProgressDecor? progressDecor,
     bool? keepScreenOn,
     bool? eggEnable,
     bool? soundEnable,
@@ -40,6 +43,7 @@ class AppSettingsState {
       flipAnimStyle: flipAnimStyle ?? this.flipAnimStyle,
       clockVisualStyle: clockVisualStyle ?? this.clockVisualStyle,
       animSpeed: animSpeed ?? this.animSpeed,
+      progressDecor: progressDecor ?? this.progressDecor,
       keepScreenOn: keepScreenOn ?? this.keepScreenOn,
       eggEnable: eggEnable ?? this.eggEnable,
       soundEnable: soundEnable ?? this.soundEnable,
@@ -59,11 +63,13 @@ class AppSettingsNotifier extends Notifier<AppSettingsState> {
         StorageService.getSetting('themeBase', ThemeBase.dark.name);
     final uiRaw = StorageService.getSetting('uiStyle', UiStyle.classic.name);
     final flipRaw =
-        StorageService.getSetting('flipAnimStyle', FlipAnimStyle.flipCard.name);
+        StorageService.getSetting('flipAnimStyle', FlipAnimStyle.tickerRoll.name);
     final visualRaw = StorageService.getSetting(
         'clockVisualStyle', ClockVisualStyle.appleMinimal.name);
     final speedRaw =
         StorageService.getSetting('animSpeed', AnimSpeed.normal.name);
+    final decorRaw = StorageService.getSetting(
+        'progressDecor', ProgressDecor.none.name);
     final keepOn = StorageService.getSetting('keepScreenOn', true);
     final eggOn = StorageService.getSetting('eggEnable', true);
     final soundOn = StorageService.getSetting('soundEnable', true);
@@ -79,7 +85,7 @@ class AppSettingsNotifier extends Notifier<AppSettingsState> {
       ),
       flipAnimStyle: FlipAnimStyle.values.firstWhere(
         (e) => e.name == flipRaw,
-        orElse: () => FlipAnimStyle.flipCard,
+        orElse: () => FlipAnimStyle.tickerRoll,
       ),
       clockVisualStyle: ClockVisualStyle.values.firstWhere(
         (e) => e.name == visualRaw,
@@ -88,6 +94,10 @@ class AppSettingsNotifier extends Notifier<AppSettingsState> {
       animSpeed: AnimSpeed.values.firstWhere(
         (e) => e.name == speedRaw,
         orElse: () => AnimSpeed.normal,
+      ),
+      progressDecor: ProgressDecor.values.firstWhere(
+        (e) => e.name == decorRaw,
+        orElse: () => ProgressDecor.none,
       ),
       keepScreenOn: keepOn,
       eggEnable: eggOn,
@@ -103,6 +113,7 @@ class AppSettingsNotifier extends Notifier<AppSettingsState> {
       'flipAnimStyle': newState.flipAnimStyle.name,
       'clockVisualStyle': newState.clockVisualStyle.name,
       'animSpeed': newState.animSpeed.name,
+      'progressDecor': newState.progressDecor.name,
       'keepScreenOn': newState.keepScreenOn,
       'eggEnable': newState.eggEnable,
       'soundEnable': newState.soundEnable,

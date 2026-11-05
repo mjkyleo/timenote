@@ -159,14 +159,48 @@ String flipAnimName(FlipAnimStyle s) {
       return '经典机场翻牌';
     case FlipAnimStyle.pageCurl:
       return '书页卷曲翻页';
-    case FlipAnimStyle.slideFlip:
-      return '滑动翻页';
-    case FlipAnimStyle.segmentFlip:
-      return '分段碎裂翻';
-    case FlipAnimStyle.fadeFlip:
-      return '渐变溶解翻';
+    case FlipAnimStyle.diagFold:
+      return '对角斜折';
+    case FlipAnimStyle.bounceFlip:
+      return '弹跳翻牌';
+    case FlipAnimStyle.cardFlip:
+      return '整卡翻面';
     case FlipAnimStyle.tickerRoll:
       return '滚筒走字';
+    case FlipAnimStyle.slideAcross:
+      return '横向滑移';
+    case FlipAnimStyle.cascade:
+      return '级联错位';
+    case FlipAnimStyle.blind:
+      return '百叶窗擦除';
+    case FlipAnimStyle.iris:
+      return '径向光圈';
+    case FlipAnimStyle.polygon:
+      return '多边形遮罩';
+    case FlipAnimStyle.crossfade:
+      return '交叉淡入';
+    case FlipAnimStyle.blurFocus:
+      return '模糊对焦';
+    case FlipAnimStyle.jelly:
+      return '果冻挤压';
+    case FlipAnimStyle.pixelShuffle:
+      return '像素洗牌';
+    case FlipAnimStyle.particleScatter:
+      return '粒子聚散';
+    case FlipAnimStyle.shardBurst:
+      return '三角碎片';
+    case FlipAnimStyle.fluidDissolve:
+      return '流体溶解';
+    case FlipAnimStyle.liquidGlass:
+      return '液态玻璃折射';
+    case FlipAnimStyle.crtScan:
+      return 'CRT 扫描线';
+    case FlipAnimStyle.slideFlip:
+      return '下方推入';
+    case FlipAnimStyle.segmentFlip:
+      return '分段碎裂';
+    case FlipAnimStyle.fadeFlip:
+      return '渐变溶解';
     case FlipAnimStyle.dropSettle:
       return '落体回弹';
     case FlipAnimStyle.autoMix:
@@ -182,5 +216,28 @@ String speedName(AnimSpeed s) {
       return '标准';
     case AnimSpeed.fast:
       return '快';
+  }
+}
+
+String progressDecorName(ProgressDecor d) {
+  switch (d) {
+    case ProgressDecor.none:
+      return '不使用';
+    case ProgressDecor.hourglass:
+      return '沙漏';
+    case ProgressDecor.water:
+      return '水位填充';
+    case ProgressDecor.ring:
+      return '环形进度';
+    case ProgressDecor.spiral:
+      return '螺旋进度';
+    case ProgressDecor.led:
+      return '灯带进度';
+    case ProgressDecor.annualRings:
+      return '年轮圆盘';
+    case ProgressDecor.candle:
+      return '蜡烛燃烧';
+    case ProgressDecor.sky:
+      return '日出日落（背景）';
   }
 }

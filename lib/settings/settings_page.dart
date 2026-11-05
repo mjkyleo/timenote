@@ -8,7 +8,7 @@ import '../theme/ui_style.dart';
 import 'enum_def.dart';
 import 'style_picker.dart';
 
-/// 设置页：底色 / 11 套界面风格 / 10 种数字样式 / 8 种翻页动画 / 速度 / 开关
+/// 设置页：底色 / 11 套界面风格 / 10 种数字样式 / 24 种翻页动画 + 混合轮换 / 速度 / 开关
 ///
 /// 左侧（窄屏时上方）是实时预览：改任何一项都能立刻看到翻页效果，
 /// 不必退回主屏去验证。
@@ -131,6 +131,16 @@ class SettingsPage extends ConsumerWidget {
               speedName(v),
               appState.animSpeed == v,
               () => update(appState.copyWith(animSpeed: v)),
+            ),
+        ]),
+        _sectionTitle(context, tokens, '底层进度组件（数字下方/背景，${ProgressDecor.values.length - 1} 种）'),
+        _chips([
+          for (final d in ProgressDecor.values)
+            buildStyleItem(
+              context,
+              progressDecorName(d),
+              appState.progressDecor == d,
+              () => update(appState.copyWith(progressDecor: d)),
             ),
         ]),
         const SizedBox(height: 12),

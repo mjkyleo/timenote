@@ -116,6 +116,13 @@ void main() {
       }
     }
 
+    test('出厂默认动画是滚筒走字', () {
+      // setUp 只写过 soundEnable：效果类 key 全都不在箱里，走的正是默认值分支
+      expect(container.read(appSettingsNotifierProvider).flipAnimStyle,
+          FlipAnimStyle.tickerRoll,
+          reason: 'R1 把默认动画定成了滚筒，改默认值要在这里钉住');
+    });
+
     Future<void> pick(WidgetTester tester, UiStyle style, ThemeBase base) async {
       await container.read(appSettingsNotifierProvider.notifier).update(
           container
@@ -123,7 +130,6 @@ void main() {
               .copyWith(uiStyle: style, themeBase: base));
       await pumpApp(tester);
     }
-
     testWidgets('选风格后主屏底色真的换成该风格的 bg', (tester) async {
       await pumpApp(tester);
       final scaffoldBefore = tester.widget<Scaffold>(find.byType(Scaffold).first);

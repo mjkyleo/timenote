@@ -8,6 +8,7 @@ import '../core/constants.dart';
 import '../core/egg_service.dart';
 import '../core/providers/app_providers.dart';
 import '../core/providers/clock_providers.dart';
+import '../progress_decor/progress_decor.dart';
 import '../settings/enum_def.dart';
 import '../settings/settings_page.dart';
 import '../theme/ui_style.dart';
@@ -172,6 +173,18 @@ class _ClockViewState extends ConsumerState<ClockView> {
           child: Stack(
             fit: StackFit.expand,
             children: [
+              // 日出日落是环境层，永远垫在最底下，不抢读数
+              if (appSetting.progressDecor == ProgressDecor.sky &&
+                  clockState.workMode == ClockWorkMode.countdown)
+                Positioned.fill(
+                  child: ProgressDecorView(
+                    decor: ProgressDecor.sky,
+                    progress: clockState.progress,
+                    fg: fg,
+                    accent: tokens.accentSelection ? tokens.accent : tokens.fg,
+                    bg: tokens.bg,
+                  ),
+                ),
               Column(
                 children: [
                   Expanded(
@@ -184,7 +197,7 @@ class _ClockViewState extends ConsumerState<ClockView> {
                   // 进度条是「还在计时」的唯一凭据，沉浸式状态下也留着；
                   // 按钮是操作入口，藏起来才是沉浸
                   if (clockState.workMode == ClockWorkMode.countdown)
-                    _progressBar(clockState, tokens),
+                    _progressArea(appSetting, clockState, tokens),
                   _chrome(_controls(appSetting, clockState, notifier, tokens)),
                 ],
               ),
@@ -246,6 +259,35 @@ class _ClockViewState extends ConsumerState<ClockView> {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: clock,
+    );
+  }
+
+  /// 进度层：选了 aux 组件就顶掉那根细条（同一个信息不画两遍）
+  ///
+  /// [ProgressDecor.sky] 例外——它是背景层，细条留着当读数。
+  Widget _progressArea(
+    AppSettingsState appSetting,
+    ClockState clockState,
+    UiTokens tokens,
+  ) {
+    final decor = appSetting.progressDecor;
+    if (decor == ProgressDecor.none || decor == ProgressDecor.sky) {
+      return _progressBar(clockState, tokens);
+    }
+    final band =
+        (MediaQuery.sizeOf(context).height * 0.18).clamp(46.0, 104.0);
+    return SizedBox(
+      height: band,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: ProgressDecorView(
+          decor: decor,
+          progress: clockState.progress,
+          fg: tokens.fg,
+          accent: tokens.accentSelection ? tokens.accent : tokens.fg,
+          bg: tokens.bg,
+        ),
+      ),
     );
   }
 
