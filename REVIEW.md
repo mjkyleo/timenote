@@ -272,7 +272,7 @@ emulator -avd trace_pixel7 -no-window -no-snapshot-save -no-boot-anim -no-audio 
 - 待修（不影响使用，只影响 run 变绿）→ **已修**：最后一行自检改成 `if summary=$(gh release view … --jq … 2>&1); then echo; else echo "::warning::…$msg"; fi`，一句打印不再能把整个 run 拖红，失败原因以 annotation 呈现。选 annotation 而不是 `::error::` 是因为它天然只当警告；而写 annotation 而非丢进日志，是因为 `actions/runs/{id}/logs` 要 admin 权限（本轮 403 过），`/check-runs/{id}/annotations` 免登录就能读。
   - workflow command 的值是**单行**协议，所以 `$summary` 先 `tr '\r\n' '  '` 再 `sed 's/%/%25/g'`（顺序不能反，反了会把刚插进的 `%25` 又转一遍）。这条管道用 `{"100%":"ok"}` + CRLF 混排做过实样验证，输出为单行且 `%`→`%2525` 这种已转义内容能正确保持。
 - 同时把 `app-x86_64-release.apk` 补进了 `gh release upload` 的附件清单（run #9 只公开了 3 个 APK，x86_64 只在 Artifacts 里），`upload-artifact` 的 `path:` 改成 `app-*-release.apk` + `app-release.apk` 两行，`if-no-files-found: error` 保持不动（两个 pattern 各自都至少匹配一个文件，不会误报）。
-- 本轮 workflow 改动的验证只到「本地静态」这一级：4 个 `run:` 块逐个抽出跑 `bash -n` 全过（2/7/37/3 行，抽取脚本按缩进去重，读回内容与 YAML 逐行一致），整文件用 `yaml 3.1.3` 解析出 android 9 步 / ios 6 步、各 `run` 步行数 1/1/1/3/8/38。两套行数来源不同（解析器把块尾换行多算一行），只做各自内部一致性检查，不互相核对。**真实跑一次要等 run #10**（见 §9.11，那次跑完之后行数是 2/7/38/3 与 1/1/1/3/8/39，因为又补了一行注释并改对了字段名）。
+- 本轮 workflow 改动的验证只到「本地静态」这一级：4 个 `run:` 块逐个抽出跑 `bash -n` 全过（2/7/37/3 行，抽取脚本按缩进去重，读回内容与 YAML 逐行一致），整文件用 `yaml 3.1.3` 解析出 android 9 步 / ios 6 步、各 `run` 步行数 1/1/1/3/8/38。两套行数来源不同（解析器把块尾换行多算一行），只做各自内部一致性检查，不互相核对。**真实跑一次要等 run #10**（见 §9.11）。后来为字段名修复又加了一行注释，改对之后的行数是 run 块 2/7/38/3、解析器 1/1/1/3/8/39 —— 那一版跑的是 run #11（见 §9.12），run #10 跑的仍是这里的 2/7/37/3 版。
 
 ### 9.11 run #10（head `e628133`）：真绿了，而且把 run #9 的根因挖了出来
 
@@ -290,6 +290,73 @@ Available fields: apiUrl assets author body createdAt databaseId id isDraft isIm
 isPrerelease name publishedAt tagName tarballUrl targetCommitish uploadUrl url zipballUrl
 ```
 
-所以 run #9 的红叉不是「打印语句玄学失败」，是 **`--json` 字段名写错**：gh 的字段叫 `isPrerelease`，没有 `prerelease`。这条错误在改之前无法知道（日志下载 403），加了 annotation 兜底之后第一轮就拿到了 —— 兜底设计的价值被实测证明了，转义管道也是真场景：gh 的错误是多行输出，经 `tr`+`sed` 压成单行才进得了 annotation。
+所以 run #9 的红叉不是「打印语句玄学失败」，是 **`--json` 字段名写错**：gh 的字段叫 `isPrerelease`，没有 `prerelease`。这条错误在改之前无法知道（日志下载 403），加了 annotation 兜底之后第一轮就拿到了 —— 兜底设计的价值被实测证明了，转义管道也是真场景：gh 的错误是多行输出，经 `tr`+`sed` 压成单行才进得了 annotation。（上面这段是为了好看手动折的行，接口原样返回的是**一整行**，`/check-runs/{id}/annotations` 里 `message` 字段没有换行。）
 
-据此把字段名改对（`--json tagName,isPrerelease,assets` + `--jq '{… prerelease: .isPrerelease …}'`），warning 分支保留不动 —— 它现在是「以后同类错误还能被读到」的保险，不是这次的补丁。**这处改动在本地，尚未推送、也就尚未经过一次真实 run**；run #10 绿的是「不拖红」，`{tag,prerelease,assets}` 那行日志目前仍打不出来。
+据此把字段名改对（`--json tagName,isPrerelease,assets` + `--jq '{… prerelease: .isPrerelease …}'`），warning 分支保留不动 —— 它现在是「以后同类错误还能被读到」的保险，不是这次的补丁。
+
+### 9.12 run #11（head `94ddb91`）：字段名修对之后，第 10 步干净通过
+
+推送 `94ddb91` 后 run #11（id `41991694782`）`completed success`，android job 13 步全 `success`，逐步用时：Setup Flutter 17s / 拉取依赖 1s / 静态分析 13s / 运行测试 25s / **构建 Release APK 289s** / 记录产物校验和 0s / 上传 Actions 产物 5s / **更新公开预发布 dev-build 6s**，ios 依旧 `skipped`。
+
+**这条算修好了的证据链**（注意它的性质是「反证」，不是直接看到日志）：`/check-runs/127125179043/annotations` 只剩 GitHub 自己的 2 条（Node 20 deprecation `warning` + ubuntu-latest 迁移 `notice`），**run #10 那条 dev-build warning 不见了**。因为 `if summary=$(…)` 的两个分支必走一个 —— 没有 warning 就等于走了 then 分支，也就等于 `gh release view --json tagName,isPrerelease,assets --jq '…'` 返回 0 并打出摘要。日志正文本身仍然读不到（`.../logs` 免下载要 admin，本机 403 过），所以「摘要长什么样」是**推断**，不是亲眼所见。
+
+**附件复验**：`dev-build` 仍是 5 个附件，`updated_at` 全部刷新到 08:10:19–20，字节数与 run #10 完全一致（arm64 17,909,554 / arm32 15,263,372 / x86_64 19,335,481 / 通用包 51,432,169 / 校验和 357）。⚠️ `gh release upload --clobber` 是**删了重建**，资产 id 每轮换（arm64 `712511360` → `712600392`、校验和 `712511369` → `712600397`），这条的正确讲法见本节末尾。
+
+**另一条实测出来的性质：同一份代码每轮构建的 sha256 都不同。** run #11 的 `apk-sha256.txt`（357 字节，和 run #10 同长度）里 arm64 是 `357d9e82c16b…`，run #10 是 `9e03d469cb66…`；四个包全部换哈希，而字节数一个都没变。这和 §9.10 那条「云端 ≠ 本机」是同一个根因的两面（Runner 每轮现生成 debug keystore，签名块内容随机器变但长度一致）。实际含义：**sha256 只能用来核对「同一次 run 的附件 == 同一次 run 的清单」，不能当版本标识，更不能跨 run 比较**。要判断装到平板上的到底是哪次提交，看 `dev-build` 正文里的 `GITHUB_SHA[0:7]`（workflow 每次 `gh release edit/create` 都会重写这行；实测 run #10 正文首行是「最新提交：`e628133`」，run #11 是「最新提交：`94ddb91`」）。
+
+**字节级完整性核对：已做成**（把 §9.10 留的口子填上）。拿 run #11 那轮的 `app-arm64-v8a-release.apk` 整份下回来 `sha256sum`，结果 `357d9e82c16bf069ff24ba6d49190a4b1f7c79f3cf682348fa7c831eb6bbe14d` 与同一轮 `apk-sha256.txt` 第一行**逐字相同**，`wc -c` 也正好 17,909,554。两种下载通道实测对比：
+
+- ❌ `https://github.com/.../releases/download/dev-build/app-arm64-v8a-release.apk` 直链：本机 `curl -sL` 停在 3,134,272 字节，而 `-w` 仍报 `HTTP=200` —— 状态码不能证明拿全了，必须比字节数。
+- ✅ `https://api.github.com/repos/mjkyleo/timenote/releases/assets/{id}` + `Accept: application/octet-stream` + `curl -sL -C -` 断点续传：**能续满，但很慢很不稳** —— 130 秒一轮连跑 8 轮才凑齐（4,297,408 → 4,635,979 → 5,995,851 → 7,552,331 → 13,491,520 → 13,988,569 → 16,036,569 → 17,909,554），单轮增量从 0.34 MB 到 5.9 MB 完全不线性，每一轮都没能在 130 秒内拿完（要么撞 `--max-time`，要么中途断流，两者从外部区分不了）。小附件（`apk-sha256.txt`）一次就拿全 357 字节。
+  - ⚠️ 中间踩到一条判读规则，值得单独记：跑到第 5 轮时文件还差 4.4 MB，此时 `sha256sum` 得到 `7593332f…`，与清单的 `357d9e82…` **不同** —— 那是**本地截断**，不是云端附件被换。所以核对顺序永远是 **先看 `wc -c` 够不够，再看哈希**；只看哈希会得出「发布被动过手脚」的错误结论。（我自己也差点犯一次：第 5 轮结束时就说过一句「凑满、逐字相同」，那是把清单里的期望值当成了实测值，撤回后重跑才拿到真结果。）
+  - 清单自身的形式也核过：357 字节、4 行、每行 `^[0-9a-f]{64}␣␣\S+$`、文件名集合与该轮 4 个 APK 完全相同。
+
+`--clobber` 换 id 这件事的正确讲法：旧 id **不会下载失败**（对着 run #10 的 id 一路续到 15,251,947 都没报错），风险只在**错配** —— 旧 id 拿到的是上一轮的字节，和本轮清单天生不匹配，会伪装成「哈希被改」。所以下之前重新取一次 `releases/tags/dev-build`，让 id 与清单同属一轮。（我中途重开过一轮，真实原因是自己的循环脚本把两个数字拼在一起 —— `sz=$(curl -w %{size_download}; wc -c)` 得到 `31940693194069` —— 加上主动停任务，不是 GitHub 报错。两件事别混着写。）
+
+## 十、第四轮：动效实验室落地（24 种翻页动画 + 8 种底层进度组件）
+
+需求出处：用户给的 `时间切换动效实验室.html`（32 件样本）＋「就是这个数字变化本身的种类，不是基于一种动画形式做颜色的变化」。分批决定由用户点头：T1+T2 先落地、aux 进度组件要（挂在数字下方/背景）、默认滚筒换成实验室版、T4 先用 `BackdropFilter`/painter 近似不上 shader。
+
+### 10.1 登记与分类（实测数字）
+
+- `FlipAnimStyle` 从 8 个值扩到 **24 种 + 混合轮换 = 枚举 25 个值**（`lib/settings/enum_def.dart:13`），按实验室原样分六类：翻折 fold 5 / 位移 roll 3 / 遮罩 mask 3 / 形变 morph 3 / 碎片 grain 3 / 光学 light 3，再加本批之前就有的 4 种。
+- 混合轮换池 `flipMixCycle` **19 项**（`grep -c "FlipAnimStyle\." ` 实测），排除 **5 项**：粒子聚散、三角碎片（实验室标「仅收尾」）、流体溶解、液态玻璃（标「高频慎用」）、像素洗牌（每字 12 块切片，一秒一次太贵）。这条不是靠自觉：`test/flip_rendering_test.dart` 用集合等式 `flipMixCycle == values − {autoMix} − poolExcludedStyles` 钉住，新增动画不归类就红。
+- 中文名两两不同有测试守着（25 个 chip，用户在设置页里要分得清）。
+- 出厂默认 = **滚筒走字**（实验室版：直线下滑 + 正弦包络的运动模糊 + 暗角，静止态一定锐利），由 `test/ui_style_test.dart` 的「出厂默认动画是滚筒走字」钉住——setUp 只写过 `soundEnable`，效果类 key 全走默认分支，所以这条测的真的是「库里什么都没有时会怎么显示」。
+
+### 10.2 哪些是近似，差在哪（不许写成原样复刻）
+
+- **碎片类没有字形位图可采**（Flutter 不提供同步 glyph outline/位图 API）→ 改成「窗口切片」近似：`ClipPath` + `FractionalTranslation`（位移量是自身尺寸的比例，不用算像素）+ `Transform.rotate/scale`。像素洗牌每字 3×4=12 块（实验室那版 6×8 是给整屏 canvas 的）、粒子聚散每字 3×5=15 个圆点、三角碎片 2×2 四个方块各切两个三角 = 8 片。
+- 散开方向由 `sin(seed)` 哈希按序号固定，所以逐帧只是「往回收」，不会抖成噪点——这条有测试逐帧比对（早期帧与中期帧的点积 ≥ 0、距离单调变小）。
+- 流体溶解／液态玻璃 = 逐条带剪切（`_shearBands`）+ `ImageFiltered` 模糊 + `Alignment` 驱动的渐变高光扫过，**不是真 shader**；CRT = 量化抖（每 1/6 帧一档）+ `CustomPainter` 扫描线覆层。
+- 对角斜折用 `..rotateX()..rotateY()` 近似绕 `(1,1,0)` 轴：material 导出的 `Matrix4` 没有 `rotate3d`，`Vector3` 也不在导出里。
+- **描边生长（实验室 #15）没做**。同样卡在没有字形轮廓 API，硬做只能是假的，所以宁可不进池。
+- 机械仪表三件（七段数码管 #19 / 指针表盘 #20 / 步进仪表 #21）属另一批，未动。
+
+### 10.3 底层进度组件层（新增 `lib/progress_decor/`，432 行）
+
+- `ProgressDecor` = 8 件 + `none`。默认 `none` 一个像素都不画，老用户升级不会突然多出一层；选中其中一种时**用它顶掉那根细进度条**（同一个信息不画两遍），`sky`（日出日落）是唯一的环境层，例外保留细条当读数、自己垫在整屏 Stack 第一层。
+- 连续相位只在沙漏／水波／蜡烛三件挂 Ticker（`animatedProgressDecors`），环／螺旋／灯带／年轮按进度画一次就够——不然待机屏白挂一个 60fps 循环。
+- `remainOf(progress) = 1 − progress` 是这一层唯一的「已消耗 → 剩余」映射，与 `ClockState.progress` 同一个定义。
+
+### 10.4 本轮抓到的真实缺陷与测试基建事实
+
+- **进度层的 60fps Ticker 不驱动重绘**：`ProgressDecorView` 起了 `repeat()`，但 `CustomPaint` 的 painter 没挂 `repaint`，widget 又只在每秒进度变化时重建 → 沙粒／水波／火苗实际停在同一帧。修法是 `initState` 里 `_tick.addListener(() => setState(...))`。反向验证做过：摘掉那行 `addListener`，用例「沙漏的沙粒逐帧在动」立刻红 `Expected: not <0.0> / Actual: <0.0>`；装回去 18 例全绿。
+- **这个 SDK 的 `ui.Picture` 没有 `getBounds()`**（`flutter analyze` 直接报 `undefined_method`）。要量画面只能 `toImageSync` + `toByteData` 自己数像素——顺带这也比包围盒诚实：包围盒算不进裁剪，水面画到框外照样计入包围盒。
+- **`ImageByteFormat.rawRgba` 是预乘缓冲**：半透明 accent（`Color(0xFF00FF00)` × 0.55）落成的字节是 `0,g,0,g` 而不是 `0,255,0,140`。第一次按未预乘比色，水体一个 accent 像素都没匹配上，测试假红；现在按「r、b 归零且绿通道有值」认 accent。
+- 光栅化必须包在 `tester.runAsync` 里：`toByteData` 的完成回调走真实事件循环，fake-async 区永远等不到（和 §R11 那条 Hive 挂死是同一个坑的两面）。
+- 找静止态残留的位移包装要**限定在自己的牌子内**：空的 `MaterialApp + Scaffold` 树里本来就挂着 4 个 `FractionalTranslation`（实测 `EMPTY tree FT=4`），不限定就分不清框架基线和我们的泄漏。
+
+### 10.5 本轮数字（实测）
+
+- 测试 86 → **160 例**：`app_widget_test.dart` 22、`flip_rendering_test.dart` 86、`ui_style_test.dart` 11、`progress_decor_test.dart` 18、`clock_notifier_test.dart` 12、`storage_service_test.dart` 3、`todo_model_test.dart` 5、`egg_service_test.dart` 3（逐文件单独跑 `flutter test <file>` 取 `+N`，与全量 `+160: All tests passed!` 一致）。
+- `flutter analyze` → `No issues found!`。
+- 改动面：`git diff --stat` 12 个文件 **+1524 / −87**，另有两个未入库的新文件（`lib/progress_decor/progress_decor.dart` 432 行、`test/progress_decor_test.dart` 429 行）。其中 `lib/flip_clock/flip_renderer.dart` 单文件 +1069 行——24 种动画全在这一个渲染层里，值得记一笔「下一个加动画的人要先接住这 1000 行」。
+- ⚠️ `ios/Runner/GeneratedPluginRegistrant.{h,m}` 被 `flutter pub get` 重新生成过，属于工具产物，不是本轮的手写改动。
+
+### 10.6 边界（这轮没做到的部分）
+
+- **观感还是没有结论**。24 种动画 + 8 种进度组件「顺不顺眼」测试给不出答案，本轮也**没有重新出包、没有跑模拟器截图**——按约定这一条由用户在那条 dev-build 直链上自测判。
+- **鸿蒙没复跑**：本轮改的全是纯 Dart（`ClipPath`/`Transform`/`ImageFiltered`/`CustomPainter`，没碰平台通道），逻辑上不该打挂 ohos，但没跑就是没跑；§9.9 那组 HAP 字节数不能当本轮数据的引用。
+- **帧率仍未量过**，而且新加的逐帧 `setState` 只作用在进度带子树、只在那三件连续组件下才挂——「一秒一次的动画值不值得每帧重建」没有实测依据。
+- 需求清单里的 R2/R3/R4/R6/R9/R10/R11/R12/R13/R14/R15/R17（整页排版与配色、手动横竖屏、显示单位、待办增强、纪念日提醒、结束三档、数字外框、隐藏系统栏、DIN 字体、包体）**还没动**，这批先把「数字怎么换」和「还剩多少怎么显示」做扎实。
