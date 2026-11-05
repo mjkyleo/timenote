@@ -220,6 +220,17 @@ RunCommandUtil.run(r, undefined, true)   // spawnSync(cmd, ["/d","/c", r], {wind
 
 - [x] CI：run #8（head `bd05071`，job `android`）失败在第 5 步「生成占位应用图标」，根因 `ubuntu-latest` 没有 ImageMagick `convert`。真实图标已入库，`.github/workflows/build-apk.yml` 里那 9 步中的图标步骤**已删除**。
   - ⚠️ 顺带提醒：即使图标步骤过了，那次 run 也会在 `flutter test` 挂 —— 当时 `pubspec.yaml` 带着 audioplayers 的 git 覆盖，标准 SDK 编不过（§3.5）。两个问题一起解决了。
+- [x] CI **首轮真实验证：run #9（head `cdceae9`，2026-11-05）**。用 `api.github.com/.../actions/runs/41983168374/jobs` 逐步骤查过：
+  - 前 9 步全 `success`：Set up job / Checkout / Setup Flutter / 拉取依赖 / **静态分析** / **运行测试** / **构建 Release APK** / 记录产物校验和 / 上传 Actions 产物。也就是说图标步骤删除 + wrapper 步骤删除 + audioplayers 覆盖移出这三处改动，在干净 Runner 上真的成立。
+  - 第 10 步「更新公开预发布 dev-build」`failure`，但**发布其实成功了**：`releases/tags/dev-build` 交出 prerelease `true`、4 个附件全在（`app-arm64-v8a-release.apk` 17,909,554 / `app-armeabi-v7a-release.apk` 15,263,372 / `app-release.apk` 51,432,169 / `apk-sha256.txt` 275），`published_at` 与附件 `updated_at` 都落在第 10 步那 6 秒窗口（06:57:05–11）内，公开直链 `curl -sIL` 三个 APK 全 `200`。
+  - 挂的是这一步**最后那句纯打印**：`gh release view "$TAG" --json … --jq '{tag:.tagName, …}'`。前面 `gh release create`/`upload` 都过了，所以是自检输出语句本身非零，不影响产物。**红叉 ≠ 包没发出去**，判断要看 steps 表和 `releases/tags/dev-build`，不能只看 run 的绿/红。
+  - ~~待办（不影响使用，只影响 run 变绿）：把那最后一行改成不会失败的写法~~ —— **已改**（见下一条）。
+- [x] run #9 之后对 `.github/workflows/build-apk.yml` 的四处修补（**本地已改并静态校验，尚未跑过一次真实 run**）：
+  - 最后一句自检改成 `if summary=$(gh release view "$TAG" --json tagName,prerelease,assets --jq '…' 2>&1); then echo "$summary"; else msg=$(printf '%s' "$summary" | tr '\r\n' '  ' | sed 's/%/%25/g'); echo "::warning::…$msg"; fi`。一句纯打印不再能把整个 run 拖红；失败原因走 annotation，因为 `.../logs` 要 admin（本轮实测 403），而 `/check-runs/{id}/annotations` 免登录可读。
+  - `apk-sha256.txt` 改成逐个点名 4 个 APK。glob 的坑是实测的：本机 `touch` 出 5 个 apk 后 `ls app-*-release.apk` 只回 3 个分 ABI 包 —— `app-` 之后要一个字面的 `-release.apk`，`*` 匹配空也只能得到 `app--release.apk`。
+  - `gh release upload` 的附件清单补上 `app-x86_64-release.apk`（run #9 公开页只有 3 个 APK，x86_64 只在 Artifacts 里），release 正文同步加了一行说明。
+  - `upload-artifact` 的 `path:` 拆成 `app-*-release.apk` + `app-release.apk` 两行，`if-no-files-found: error` 保留（两个 pattern 各自都匹配得到文件）。
+  - 校验程度（要说清楚，别当成跑过了）：`node` 按缩进抽出 4 个 `run:` 块（2/7/37/3 行）逐个 `bash -n` 全过，读回内容与 YAML 一致；`yaml 3.1.3` 解析全文件 → android 9 步 / ios 6 步，各 `run` 块行数 1/1/1/3/8/38；转义管道用 `{"100%":"ok"}` + CRLF 的样例实测成单行，已含 `%25` 的串会变成 `%2525`（GitHub 解回来正好是原样，所以顺序是先 `tr` 后 `sed`，反了会二次转义）。**真正的验证要等 run #10**。
 - [x] `gradle-wrapper.jar` 这条**已收口，走的是「不提交 jar、删掉 CI 下载步骤」**。理由是从 Flutter 工具源码读出来的，不是猜的：
   - `flutter_cache.dart:539` → `GradleWrapper(Cache cache) : super('gradle_wrapper', cache, DevelopmentArtifact.universal)` —— wrapper 属于 **universal** 产物集，任何跑过命令的 Flutter 安装（含 CI runner）都在 `bin/cache/artifacts/gradle_wrapper/` 里有它，不存在「CI 缓存里没这个 artifact」的失败模式。
   - `gradle_utils.dart:237-239` `getExecutable()` 每次构建 Android 前都会调 `injectGradleWrapperIfNeeded(androidDir)`，把 jar + `gradlew`/`gradlew.bat` 一起拷进 `android/`。
@@ -228,12 +239,11 @@ RunCommandUtil.run(r, undefined, true)   // spawnSync(cmd, ["/d","/c", r], {wind
   - `.github/workflows/build-apk.yml` 里的「恢复 gradle wrapper jar」步骤**已删** —— 少一个 `raw.githubusercontent.com` 的隐性依赖。jar 依旧由 `android/.gitignore:1` 挡在版本库外（`gradlew`/`gradlew.bat` 同理在第 4-5 行），**这就是设计如此，不是待修**。
   - ⚠️ 如果哪天想把 jar 也纳库（为了脱离 Flutter 直接 `./gradlew`）：得先删 `android/.gitignore:1`，而且必须连 `gradlew`/`gradlew.bat` 一起提交，否则 `getExecutable()` 仍要注入脚本，单独提交 jar 省不掉缓存依赖。
   - ✅ **这条不是纸上推理，本机做过等价实验**：把 `android/gradlew`、`android/gradlew.bat`、`android/gradle/wrapper/gradle-wrapper.jar`、`android/local.properties` 四个（= CI 干净检出后实际缺的那四个，`git ls-files android` 里只有 `gradle-wrapper.properties` 入库）移走，`android/` 就和 runner 上的工作树一致；跑 CI 用的同一条命令 `flutter build apk --release --split-per-abi` → `Running Gradle task 'assembleRelease'... 23.9s`，`EXIT=0`，三个 APK 照常出，四个文件全部被重新注入。注入前后 jar 的 `sha256` 相同（`16caeaf…42da`），产物字节数也与移走前完全一致（17,852,071 / 15,238,657 / 19,343,534）。
-- [ ] 当前工作树（2026-11-05 第三轮改动后 `git status --short` + `git diff --numstat` 实测，等授权后一次提交）：
-  - **17 个 `M`**，其中 2 个是假差异（见下），真正有内容的 15 个。「+/−」逐条：
-    - 第三轮（动画重做 + 沉浸式 + 设置分栏 + 文档）：`lib/flip_clock/flip_renderer.dart` 342/71（`FlipRenderer` 基类 + 铰链几何 + 8 种效果）、`lib/flip_clock/flip_card_widget.dart` 186/11（逐格 `_FlipCell` + 字符没变不启动 controller）、`lib/flip_clock/clock_view.dart` 43/32（`_chrome()` 淡出 + `IgnorePointer`，含上一轮弹窗修复）、`lib/settings/settings_page.dart` 69/63（宽+高双条件分栏、`Wrap` 间距）、`lib/settings/enum_def.dart` 5/2（`autoMix`）、`lib/settings/style_picker.dart` 16/4（第 8 种动画的中文名）、`lib/main.dart` 4/0（`SystemChrome.setEnabledSystemUIMode(immersiveSticky)` 整屏）、`test/flip_rendering_test.dart` 197/49、`test/app_widget_test.dart` 157/10、`README.md` 88/11、`REVIEW.md` 74/1（第九节 + §9.8 图证）
-    - 鸿蒙那一轮遗留：`.github/workflows/build-apk.yml` 0/16（删两步：「恢复 gradle wrapper jar」5 行 + 「生成占位应用图标」9 行，各带 1 行空行）、`.gitignore` 3/0、`.metadata` 7/4（+ohos 平台）、`pubspec.yaml` 12/1（鸿蒙插件）
-  - `ios/Runner/GeneratedPluginRegistrant.{h,m}` 这 2 个是 CRLF 假差异：**`git diff --stat --ignore-cr-at-eol -- ios` 实测零行 stat**（只吐 warning），所以 **提交前 `git checkout -- ios`**。
-  - 未跟踪 **44 个文件**：`git add -An --dry-run` 实测 `ohos/` 33、`tool/` 4、`android/app/src/main/res/mipmap-*/ic_launcher.png` 5、`assets/icon/` 1、`HANDOFF-OHOS.md` 1。
+- [x] 当前工作树（2026-11-05 第三轮改动，**已提交并推送**）：提交 `cdceae9`「feat: 翻页动画重做（8 种·绕中缝铰链）+ 沉浸式待机，鸿蒙工程入库」，`59 files changed, 2188 insertions(+), 275 deletions(-)`。
+  - 提交前实测：`git status --short` = 17 `M` + 9 `??`；`ios/Runner/GeneratedPluginRegistrant.{h,m}` 这 2 个 CRLF 假差异在 `git add` 前用 `git checkout -- ios` 还原（依据：`git diff --stat --ignore-cr-at-eol -- ios` 零行 stat，只吐 warning），所以最终提交是 **15 个 M + 44 个新文件 = 59**，与 `git diff --cached --name-only | wc -l` 一致；暂存后 `git status --short | grep -vE "^[MA]  "` 为空，确认没漏也没多。
+  - 入库前扫过密钥：对**将要 add 的 44 个文件**（不是整个目录，`ohos/entry/build/**` 的缓存不在内）`grep -niE "password|secret|token|BEGIN (RSA|OPENSSH)|api[_-]?key"`，只有 `assets/icon/*.png` 因二进制字节撞词命中，`ohos/build-profile.json5` 是 `"signingConfigs": []` 空数组，无凭据。⚠️ `tool/ohos_env.sh` 里有本机路径（含 Windows 用户名 `86132` 与盘符），是设计如此（当作「仓库内正本」），不是泄露。
+  - 作者与推送（都按上面的约定实测过）：`git -c user.name=Ky -c user.email=125885091+mjkyleo@users.noreply.github.com commit` → `git log -1` 交出 `Ky <125885091+mjkyleo@users.noreply.github.com>`（qq 邮箱会被 GH007 拒，这次没触发）；`GIT_SSH_COMMAND='ssh -i ~/.ssh/git_ssh_key -o IdentitiesOnly=yes -p 443' git push ssh://git@ssh.github.com:443/mjkyleo/timenote.git main:main` → `bd05071..cdceae9`；`git ls-remote` 的 `refs/heads/main` = `cdceae9951a3d1b600ac0951e4223caa0674d1ba` = 本地 `git rev-parse main`。
+  - 逐文件 +/− 不再抄录（`git show --stat cdceae9` 即得）：渲染层 `flip_renderer.dart` 342/71、`flip_card_widget.dart` 186/11、`clock_view.dart` 43/32、`settings_page.dart` 69/63、测试 197/49 与 157/10，CI 那步删 16 行。
   - 提交前基线（已实测）：`flutter analyze` → `No issues found! (ran in 9.6s)`，`flutter test` → `00:21 +86: All tests passed!`。
   - ⚠️ **提交时必须逐次覆盖邮箱**：`git config --local user.email` 实测为空，`--global` 是 `437257976@qq.com`，而 GitHub 那边开了邮箱隐私保护（qq 邮箱会被 GH007 拒）。`bd05071`/`29a03e9`/`b187ee8` 三个提交的作者都是 `125885091+mjkyleo@users.noreply.github.com / Ky`，是靠命令行 `-c` 覆盖做到的，不是仓库配置。所以提交用
     `git -c user.name=Ky -c user.email=125885091+mjkyleo@users.noreply.github.com commit ...`
@@ -247,7 +257,7 @@ RunCommandUtil.run(r, undefined, true)   // spawnSync(cmd, ["/d","/c", r], {wind
 | --- | --- |
 | 构建命令 | `D:\dev\flutter\bin\flutter.bat build apk --debug` / `--release`（标准 SDK，3.47.8） |
 | 产物目录 | `build/app/outputs/flutter-apk/`（每个 apk 旁边都有 `.sha1`） |
-| 公开分发 | GitHub Actions 每次推 main 自动更新 prerelease `dev-build`（`gh release view dev-build`），三个 APK：`app-arm64-v8a-release.apk`（优先）、`app-armeabi-v7a-release.apk`、`app-release.apk` |
+| 公开分发 | **已真实验证（run #9，`cdceae9`）**：`dev-build` 预发布由 CI 创建并发布，4 个附件都在，公开直链免登录 `curl -sIL` 全部 `200` —— `app-arm64-v8a-release.apk` 17,909,554 / `app-armeabi-v7a-release.apk` 15,263,372 / `app-release.apk` 51,432,169 / `apk-sha256.txt` 275。⚠️ 云端 arm64 与本机 arm64（17,917,607）**字节数与 sha256 都不同**：Runner 用的是它自己现生成的 `~/.android/debug.keystore`，签名块不一样，别拿本机哈希去核对云端附件。⚠️ run #9 那份 `apk-sha256.txt` 里没有通用包（`app-*-release.apk` 这个 glob 匹配不到 `app-release.apk`，本机实验过：`touch` 5 个 apk 后 `ls` 只回 3 个），且公开页少 `app-x86_64-release.apk` —— **两处都已在本地改掉，等 run #10 出真附件才算验证**，所以现在 Releases 页看到的仍是 3 APK + 3 行校验和。 |
 | 签名 | Release 用 debug keystore，能装能自用，不能上 Google Play |
 
 本次重建（2026-11-05 11:10–11:12，已含 §6.6 的弹窗修复）实测大小：

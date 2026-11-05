@@ -52,14 +52,19 @@ jobs:
         run: |
           cd build/app/outputs/flutter-apk
           ls -la
-          sha256sum app-*-release.apk > "$GITHUB_WORKSPACE/apk-sha256.txt"
+          # 逐个点名，不用 app-*-release.apk：那个 glob 匹配不到通用包
+          # app-release.apk（app- 之后还需要一个字面的 -release.apk）
+          sha256sum app-arm64-v8a-release.apk app-armeabi-v7a-release.apk \
+            app-x86_64-release.apk app-release.apk > "$GITHUB_WORKSPACE/apk-sha256.txt"
           cat "$GITHUB_WORKSPACE/apk-sha256.txt"
 
       - name: 上传 Actions 产物（需登录下载，默认保留 90 天）
         uses: actions/upload-artifact@v4
         with:
           name: timenote-release-apk
-          path: build/app/outputs/flutter-apk/app-*-release.apk
+          path: |
+            build/app/outputs/flutter-apk/app-*-release.apk
+            build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
 
       - name: 更新公开预发布 dev-build
@@ -73,6 +78,7 @@ jobs:
 
           - \`app-arm64-v8a-release.apk\`：近十年的平板/手机，优先装这个
           - \`app-armeabi-v7a-release.apk\`：只有很老的 32 位设备才需要
+          - \`app-x86_64-release.apk\`：x86_64 模拟器 / Chromebook 才需要，真机基本用不上
           - \`app-release.apk\`：不区分 ABI 的通用包，体积最大
 
           安装：允许「来自未知来源的应用」后直接点开 APK，或 \`adb install app-arm64-v8a-release.apk\`。
@@ -87,10 +93,21 @@ jobs:
           gh release upload "$TAG" --clobber \
             "$APK_DIR"/app-arm64-v8a-release.apk \
             "$APK_DIR"/app-armeabi-v7a-release.apk \
+            "$APK_DIR"/app-x86_64-release.apk \
             "$APK_DIR"/app-release.apk \
             apk-sha256.txt
-          gh release view "$TAG" --json tagName,prerelease,assets \
-            --jq '{tag: .tagName, prerelease: .prerelease, assets: [.assets[].name]}'
+          # 这句只是把结果打印到日志，附件传完之后再失败也不该把整个 run 拖红。
+          # run #9 就是挂在这里（发布本身成功），所以失败原因要写成 annotation：
+          # annotations 接口免登录就能读，日志下载却要 admin 权限。
+          if summary=$(gh release view "$TAG" --json tagName,prerelease,assets \
+              --jq '{tag: .tagName, prerelease: .prerelease, assets: [.assets[].name]}' 2>&1); then
+            echo "$summary"
+          else
+            # 先 tr 掉换行（workflow command 的值必须是单行），再把 % 转义成 %25：
+            # 顺序反了会把刚插进的 %25 又转一遍，annotation 里就多出个假数字。
+            msg=$(printf '%s' "$summary" | tr '\r\n' '  ' | sed 's/%/%25/g')
+            echo "::warning::dev-build 已发布（附件见 Releases 页），但自检打印失败：$msg"
+          fi
 
   ios:
     # 手动触发且勾上 ios 才跑，避免每次 push 都消耗 macOS 分钟数

@@ -258,3 +258,18 @@ emulator -avd trace_pixel7 -no-window -no-snapshot-save -no-boot-anim -no-audio 
 - 顺手抓到一个文档错误并改掉：**release 不往 `build/ohos/hap/` 复制**（日志只打印签名提示），之前 HANDOFF 写的「release 包躺在 build/ohos/hap/」是拿错文件得出的；现在两处落点分别写明。
 - release 的字节数与重做前完全相同，看着像没重编。用符号否掉了：`app.so` 时间戳是本次的 14:29，二进制里 `grep -ac` 查到本轮才加的 `autoMix` 与 `_hingedLeaf`（两者在 `git diff` 里都是 `+` 行）→ 是当前代码，同大小是巧合。
 - 仍未验：ohos 侧的运行表现（未签名装不上真机，§5 待办 6）。所以「8 种动画在鸿蒙上画得对不对」目前只有「编译进包 + Dart 层同一份代码」这一级保证。
+
+### 9.10 云端首轮真实构建（run #9，head `cdceae9`）——红叉是假警报
+
+推上去后 run #9 结论 `failure`，但逐步骤查（`actions/runs/41983168374/jobs`）发现**前 9 步全绿**，包括之前一直担心的三处改动：删图标步骤、删 gradle wrapper 下载步骤、audioplayers 覆盖移出 `pubspec.yaml`。干净 Runner 上 `flutter analyze` + `flutter test`（86 例）+ `build apk` 全过。
+
+唯一挂的是第 10 步「更新公开预发布 dev-build」，而**发布实际成功了**：`releases/tags/dev-build` 交出 prerelease `true` + 4 个附件全在，`published_at`（06:57:06）与附件 `updated_at`（06:57:08–10）都落在那一步 6 秒窗口（06:57:05–11）内，公开直链 `curl -sIL` 三个 APK 全 `200`。失败点是这一步**最后那句纯打印** `gh release view --json … --jq …`，前面的 `gh release create`/`upload` 都过了。
+
+结论与教训：
+- **红叉 ≠ 包没发出去**。判断要看 steps 表和 `releases/tags/dev-build`，不能只看 run 的绿/红。
+- 云端包与本机包**字节数与 sha256 都不同**（云端 arm64 17,909,554 / 本机 17,917,607），因为 Runner 用的是它自己现生成的 `~/.android/debug.keystore`，签名块不一样。别拿本机哈希去核对云端附件，要比只比 `apk-sha256.txt` 里云端自己算的那组。
+- ~~小瑕疵：`apk-sha256.txt` 里只有三个分 ABI 包，没有通用包 `app-release.apk`~~ —— 已修，根因是 glob 而不是笔误，并且实测过：本机建 `app-arm64-v8a-release.apk`/`app-armeabi-v7a-release.apk`/`app-x86_64-release.apk`/`app-release.apk`/`app-debug.apk` 五个空文件，`ls app-*-release.apk` 只回前三个。`app-` 之后要求一个字面的 `-release.apk`，`*` 匹配空也只能凑出 `app--release.apk`，所以通用包永远进不去。现在那一步改成逐个点名 4 个文件。
+- 待修（不影响使用，只影响 run 变绿）→ **已修**：最后一行自检改成 `if summary=$(gh release view … --jq … 2>&1); then echo; else echo "::warning::…$msg"; fi`，一句打印不再能把整个 run 拖红，失败原因以 annotation 呈现。选 annotation 而不是 `::error::` 是因为它天然只当警告；而写 annotation 而非丢进日志，是因为 `actions/runs/{id}/logs` 要 admin 权限（本轮 403 过），`/check-runs/{id}/annotations` 免登录就能读。
+  - workflow command 的值是**单行**协议，所以 `$summary` 先 `tr '\r\n' '  '` 再 `sed 's/%/%25/g'`（顺序不能反，反了会把刚插进的 `%25` 又转一遍）。这条管道用 `{"100%":"ok"}` + CRLF 混排做过实样验证，输出为单行且 `%`→`%2525` 这种已转义内容能正确保持。
+- 同时把 `app-x86_64-release.apk` 补进了 `gh release upload` 的附件清单（run #9 只公开了 3 个 APK，x86_64 只在 Artifacts 里），`upload-artifact` 的 `path:` 改成 `app-*-release.apk` + `app-release.apk` 两行，`if-no-files-found: error` 保持不动（两个 pattern 各自都至少匹配一个文件，不会误报）。
+- 本轮 workflow 改动的验证只到「本地静态」这一级：4 个 `run:` 块逐个抽出跑 `bash -n` 全过（2/7/37/3 行，抽取脚本按缩进去重，读回内容与 YAML 逐行一致），整文件用 `yaml 3.1.3` 解析出 android 9 步 / ios 6 步、各 `run` 步行数 1/1/1/3/8/38。两套行数来源不同（解析器把块尾换行多算一行），只做各自内部一致性检查，不互相核对。**真实跑一次要等 run #10**。
