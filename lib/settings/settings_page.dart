@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/constants.dart';
 import '../core/providers/app_providers.dart';
+import '../core/update_check.dart';
 import '../flip_clock/flip_card_widget.dart';
 import '../theme/ui_style.dart';
 import 'enum_def.dart';
@@ -173,12 +175,14 @@ class SettingsPage extends ConsumerWidget {
               (val) => update(appState.copyWith(soundEnable: val))),
         ]),
         _card(context, tokens, '关于', [
-          const Text(
+          Text(
             '时笺 TimeNote · 平板离线翻页时钟\n'
             '专注计时 + 待办 + 彩蛋文案\n'
-            '纯离线运行，无登录，无广告 · 开源协议 MIT',
-            style: TextStyle(fontSize: 13, height: 1.7),
+            '不登录、不广告；除了你主动点下面「检查更新」那一次请求，App 不发任何网络包 · MIT\n'
+            '当前构建：${buildSha.isEmpty ? '本地构建（没注构建号，比对不了）' : shortOf(buildSha)}',
+            style: const TextStyle(fontSize: 13, height: 1.7),
           ),
+          const UpdateCheckSection(),
         ]),
         const SizedBox(height: 24),
       ],
@@ -332,6 +336,104 @@ class _StylePreviewState extends State<StylePreview> {
             style: TextStyle(fontSize: 12, color: tokens.muted),
           ),
           const SizedBox(height: 10),
+        ],
+      ),
+    );
+  }
+}
+
+/// 「检查更新」这一段：点了才发那一次请求，平时零请求。
+///
+/// 只报「云端是不是有更新的构建」，不下载、不安装——debug keystore 签名的包
+/// 也只能靠用户自己下载重装，所以顺手给一条可复制的地址。
+class UpdateCheckSection extends ConsumerStatefulWidget {
+  const UpdateCheckSection({super.key});
+
+  @override
+  ConsumerState<UpdateCheckSection> createState() => _UpdateCheckSectionState();
+}
+
+class _UpdateCheckSectionState extends ConsumerState<UpdateCheckSection> {
+  UpdateCheckResult? _result;
+  bool _running = false;
+  bool _copied = false;
+
+  Future<void> _check() async {
+    setState(() {
+      _running = true;
+      _copied = false;
+    });
+    final result = await checkForUpdate(ref.read(latestShaFetcherProvider));
+    if (!mounted) return;
+    setState(() {
+      _running = false;
+      _result = result;
+    });
+  }
+
+  Future<void> _copyLink() async {
+    await Clipboard.setData(
+        const ClipboardData(text: devBuildReleaseUrl));
+    if (!mounted) return;
+    setState(() => _copied = true);
+  }
+
+  String _message(UpdateCheckResult? r) {
+    if (_running) return '正在问云端最新构建…';
+    if (r == null) return '还没检查过：比对的是构建 commit，不会自动下载或安装。';
+    switch (r.status) {
+      case UpdateCheckStatus.upToDate:
+        return '已是最新（构建 ${shortOf(buildSha)}）。';
+      case UpdateCheckStatus.available:
+        return '云端有更新的构建 ${r.remoteShort}，你这份是 ${shortOf(buildSha)}：'
+            '复制地址下 APK 装上就是新版。';
+      case UpdateCheckStatus.localBuild:
+        return '本地构建没注构建号，比不了；云端最新是 ${r.remoteShort}。';
+      case UpdateCheckStatus.failed:
+        return '检查失败：没网络，或者云端还没发布过 dev-build 安装包。';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = UiScope.maybeOf(context) ?? UiTokens.classic(false);
+    final accent = tokens.accentSelection ? tokens.accent : tokens.fg;
+    final style = OutlinedButton.styleFrom(
+      foregroundColor: accent,
+      side: BorderSide(color: accent.withValues(alpha: 0.6)),
+    );
+    final canCopy = _result != null &&
+        _result!.status != UpdateCheckStatus.failed &&
+        _result!.status != UpdateCheckStatus.upToDate;
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              OutlinedButton(
+                style: style,
+                onPressed: _running ? null : _check,
+                child: Text(_running ? '检查中…' : '检查更新'),
+              ),
+              if (canCopy)
+                OutlinedButton(
+                  style: style,
+                  onPressed: _copyLink,
+                  child: Text(_copied ? '已复制' : '复制下载地址'),
+                ),
+            ],
+          ),
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(_message(_result),
+                style: TextStyle(
+                    fontSize: 12, height: 1.6, color: tokens.muted)),
+          ),
         ],
       ),
     );

@@ -526,3 +526,71 @@ isPrerelease name publishedAt tagName tarballUrl targetCommitish uploadUrl url z
 - **「重来」只复用上一轮的 `total`**，不重新弹自定义输入框；要换时长还得再点一次时长档。
 - **鸿蒙没复跑**：改动全在纯 Dart（视图分叉、Provider 一个键、设置页 widget 树），没碰平台通道。
 - 编号说明：本轮新分配的 R19=归零「重来」、R20=设置页分区重排（R18=细进度条开关在会话里先用过），R16=扩充动画种类、R17=包体积不变。
+
+## 十四、第八轮：手动「检查更新」（R21）
+
+先说清用户这句需求原话的边界：问的是「有没有可以根据云端的版本判断要不要更新的功能」，我答「没有」之后追加的是「**加个手动检查更新按钮**」。所以这一轮的口径是——
+
+| 事项 | 决定 | 落地 |
+| --- | --- | --- |
+| 自动不自动 | 手动。没点按钮**一次请求都不发** | 进设置页不预取；`called == 0` 有一条专门用例守着 |
+| 要不要自动下载/安装 | 不做。只给一条可复制的地址 | 复制 `releases/tag/dev-build` 发布页，自己下 APK 装 |
+| 比对基准 | 构建对应的 commit | APK 里烧进 `BUILD_SHA`，云端读 `dev-build-sha.txt` |
+| 要不要引依赖 | 不引 `url_launcher`、不引 `package:http` | 剪贴板是 `flutter/services`，抓取用 `dart:io` 的 `HttpClient` |
+
+### 14.1 为什么读 Release 附件而不是 GitHub API
+
+两种写法都能拿到「main 最新提交」：`api.github.com/repos/mjkyleo/timenote/commits/main`，或 CI 每次发布都覆盖的纯文本附件。选了后者，三个理由按重要性排：
+
+1. **匿名限流**。`api.github.com` 免登录 60 次/小时/IP（GitHub 公开文档口径，没实测撞过），平板和手机共用出口 IP 时容易排队；`releases/download/...` 走发布页直链，没有这层限制。另外它按 404 就能明确区分「还没发过包」，API 那条路拿到的永远是仓库状态。
+2. **口径对齐**。API 给的是「仓库当前 HEAD」，附件给的是「**你手上这个包能装的那一版**对应的构建」。装了 dev-build 之后有人又推了 main 但云端构建失败，API 会说「有新版」而那个版本根本没有可安装的包；附件不会撒谎。
+3. **解析成本**。API 要 JSON + `sha` 字段，附件是一行文本，`trim` 完就能比。
+
+比的是**前 7 位小写**（`shortOf`），和 CI 在 Release 正文里写的短号同一口径；本地 `buildSha` 为空（本机 `flutter run` 的包没注构建号）时明确报「比不了」，**不**降级成「已是最新」——这是那 4 档状态里唯一容易被写歪的一条，单独立了一例。
+
+### 14.2 实现的三处 + 一条注入缝
+
+- `lib/core/update_check.dart`（新，88 行）：`buildSha` / `latestBuildUrl` / `devBuildReleaseUrl` 三个常量、`UpdateCheckStatus` 四档、`fetchLatestBuildSha`（带 10 秒超时，`HttpClient` 默认跟随 302，UA 见下面「实测补记」）、`checkForUpdate`。
+- `lib/settings/settings_page.dart:177-186`：「关于」卡里加了一行当前构建短号，下面挂 `const UpdateCheckSection()`（`:349-440`）。两个 `OutlinedButton` 用 `Wrap` 摆，复制按钮只在「有新版 / 本地构建」两种结果下出现（`canCopy` 排除 `failed` 与 `upToDate`，`_message` 的四句中文见 `:383-393`）。
+- `.github/workflows/build-apk.yml:48-53 / :65 / :106`：两条 `flutter build apk` 都加 `--dart-define=BUILD_SHA=$GITHUB_SHA`，校验和那一步顺手 `printf '%s\n' "$GITHUB_SHA" > dev-build-sha.txt`，`gh release upload` 的清单里点名带上它，Release 正文补了一句两份 txt 各干什么。
+- `tool/build_hap.sh:31`：本机出鸿蒙包时注入 `git rev-parse HEAD`，拿不到就注空串（App 侧走「比不了」分支）。
+
+两条缝是为测试留的，不是为了以后扩展：`latestShaFetcherProvider`（设置页只 `ref.read` 它，所以 UI 用例可以塞假抓取）和 `checkForUpdate(fetch, {String? localSha})`（`buildSha` 是编译期 `String.fromEnvironment`，测试进程里恒为空，不传参数就只能测「比不了」那一档）。
+
+### 14.3 权限：release 清单不补 INTERNET，真机包直接连不出去
+
+`android/app/src/main/AndroidManifest.xml` 只加了 3 行 `<uses-permission android:name="android.permission.INTERNET"/>`。这条此前只存在于 debug/profile 两份清单里，release 构建读的是 `main` 这份，**不补上「检查更新」在真机包里必然失败**（本地测试全绿发现不了，因为 flutter_test 根本不走真 socket）。顺带把 README 和「关于」里的「纯离线」改成实话：不登录、不广告、不上传数据，唯一出网的一次是你按下那个按钮。鸿蒙侧 `module.json5` 早就声明过 `ohos.permission.INTERNET`，不用动。
+
+### 14.4 反向验证（四条，改坏→必须变红→还原后全绿）
+
+| 改坏的地方 | 怎么改坏 | 变红 |
+| --- | --- | --- |
+| `fetchLatestBuildSha` 的正文 | 去掉 `.trim()`（附件末尾那个 `\n` 就不去了） | 「200 的正文按 trim 后原样返回」**1/1 例红** |
+| `checkForUpdate` 的判等 | `final same = ...` → `final same = true` | 「云端换了提交就报有新版」**1 例红**，另 4 例（大小写、前 7 位、空本地、失败）不受影响 |
+| `checkForUpdate` 的空守卫 | 整行删掉 `if (remote.isEmpty) ...` | 「远端空串与抛异常都归到 failed」**1 例红**（空串会掉进比对，判成「有新版」） |
+| 复制按钮的文本 | `ClipboardData(text: devBuildReleaseUrl)` → `latestBuildUrl` | 「复制的是 dev-build 发布页，不是那条 .txt」**1 例红** |
+
+四条都是当场改完就跑 `test/update_check_test.dart`，量完红再 `cp` 回原文件、`diff` 确认零差异、重跑 `+11: All tests passed!`；`git diff --numstat` 也回到改动前的 `105/3`，确认没把变异残留进工作区。
+
+### 14.5 本轮数字（实测）
+
+- 测试 191 → **202 例**（`flutter test` → `+202: All tests passed!`；`flutter analyze` → `No issues found!`）。新增全在 `test/update_check_test.dart`（172 行、11 例）：比对逻辑 5 + loopback 真实抓取 2 + 设置页接线 4。
+- 逐文件相加 34+12+13+3+87+18+3+5+16+11 = **202**，与全量一致。
+- 改动面（`git diff --numstat`，插入/删除）：`lib/settings/settings_page.dart` **105/3**（441 行）、`android/app/src/main/AndroidManifest.xml` **3/0**（50 行）、`.github/workflows/build-apk.yml` **11/3**（153 行）、`tool/build_hap.sh` **6/2**（35 行）、`README.md` **9/5**（266 行，7 个 hunk）；新文件 `lib/core/update_check.dart` 88 行、`test/update_check_test.dart` 172 行。
+- `ios/Runner/GeneratedPluginRegistrant.{h,m}` 在 `git status` 里显示被改，但 `git diff` 没有任何 hunk —— 纯 CRLF/LF 抖动（flutter 工具链回写），内容零变化，所以不入库。
+
+### 14.6 这轮踩到的工具事实
+
+- **`flutter_test` 把 `HttpClient` 整个换成假实现**：真机代码走 `dart:io` 的 `HttpClient` 在测试里永远拿到 400，还会打一行「creates an HttpClient to instead of the one configured by HttpOverrides」的警告。要测真实抓取路径，`setUp` 里临时 `HttpOverrides.global = null`、`tearDown` 还原，再对 `127.0.0.1` 上现起的 `HttpServer` 发请求——这样既测到真实的 socket/UA/状态码处理，又不出本机。
+- **这个 SDK 的 `flutter_test` 不 mock 剪贴板**：`await Clipboard.setData(...)` 在测试里**永不返回**，于是按钮卡在「检查中…」、`_copied` 永远为 false，用例表现为超时而不是报错，很难看出根因。正解是 `tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, handler)`，顺手把 `MethodCall` 捕获下来直接断言 `arguments['text']`——这样「复制的是发布页不是 .txt」这条判据才真的被测到。
+- **编译期常量测不了就得留参数**：`String.fromEnvironment` 在测试进程里是空串，`checkForUpdate` 不接 `localSha` 就没法测「大小写不同但同一个提交」这类用例。这不是通用抽象，是这一条的具体解法。
+- `HttpOverrides? original` 要写成可空：`HttpOverrides.global` 的 getter 本来就返回 null，写成非空直接编译不过。
+
+### 14.7 边界（没做到的部分）
+
+- **对外的三条 URL 今天本机实测过**（`curl -sL`，都是免登录）：① `releases/download/dev-build/apk-sha256.txt` 不带 UA = **200、357 字节**（和 README 记的那个数一致），带 UA 同为 200 —— 所以代码里那句「缺 UA 会 403」原先写错了，已改成注释说明**缺 UA 回 403 的是 `api.github.com`**（实测 403，正文写着 "Request forbidden by administrative rules… User-Agent header"），附件直链这条路上 UA 只是给以后换 API 时兜底；② `releases/download/dev-build/dev-build-sha.txt` 现在 **404**，符合预期（这轮没推 main，CI 还没生成过它），App 侧这种情形会归到「检查失败：没网络，或者云端还没发布过 dev-build 安装包」，文案不撒谎；③ 直链返回 302，`HttpClient` 默认跟随重定向，`followRedirects` 没改过。
+- **没在真机点过一次**。CI 那一侧的 `dev-build-sha.txt` 要等下一次推 main 才会第一次出现，本轮没有跑云端构建，所以「App 里按下按钮 → 显示远端短号 → 复制地址」这条链路只有 loopback 用例覆盖，「6 个附件」在 README 里也标注成**预期而非取证**。
+- **不做「谁新谁旧」的方向判断**。只比前 7 位是否相同，不同就报「云端有更新的构建」。如果本地其实比云端新（比如手动装过某轮之后的本地构建），这句话方向是反的；要严格判序得拉 commit 图，不值得为一个自用 dev-build 引这套复杂度。
+- **前 7 位理论上有碰撞**（同一提交序列里出现相同前缀）。判据会当成「已是最新」，概率按 git 短号惯例可忽略，但确实是个已知不严谨点。
+- **只有 Android 有意义**。iOS 侧 release 不构建、鸿蒙没签名，两处都装不上 dev-build 包，按钮在那些平台上只能告诉你「有新版」而没法装；代码不分平台，行为一致。
+- 编号说明：本轮 R21=手动检查更新。R17（包体积）顺带有了新数据点：新增一个 88 行的 Dart 文件、两条按钮，APK 尺寸变化没实测（本轮没出包）。

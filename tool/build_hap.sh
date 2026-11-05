@@ -25,7 +25,11 @@ cp tool/pubspec_overrides.ohos.yaml pubspec_overrides.yaml
 trap 'rm -f pubspec_overrides.yaml' EXIT
 
 args="${*:---debug --no-codesign}"
-echo "== $FLUTTER_BAT build hap $args"
+# 和 CI 出 APK 同一口径：把当前 commit 注进包里，设置页「检查更新」才有得比。
+# 拿不到 git（比如从压缩包出来的工作副本）就留空，App 会显示「本地构建，比对不了」。
+sha=$(git rev-parse HEAD 2>/dev/null || echo '')
+define="--dart-define=BUILD_SHA=$sha"
+echo "== $FLUTTER_BAT build hap $args $define"
 # 签名需要 DevEco/AGC 下发的调试证书，命令行拿不到；--no-codesign 出未签名包，
 # 装到真机前要在 DevEco Studio 里配 signing configs（见 HANDOFF-OHOS.md §5）。
-cmd //c "$(cygpath -w "$FLUTTER_BAT")" build hap $args
+cmd //c "$(cygpath -w "$FLUTTER_BAT")" build hap $args $define

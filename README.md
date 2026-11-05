@@ -42,7 +42,8 @@
   - **七张分区卡从上到下**：外观（底色 / 界面风格 / 数字外框）→ 数字样式（计时画面 / 动画速度）→ 翻页动画（按分组族铺小标题）→ 进度显示（细进度条开关 + 底层进度组件）→ 倒计时结束 → 屏幕与声音 → 关于；每张卡一个强调色竖条当锚点，卡内一组一个小标签，不再是一整面芯片墙
   - 分栏按「宽 + 高」双条件判定：横屏手机（Pixel 7 逻辑 914×411）高度不足时改成上下叠放，预览按 42% 收放（下限 140、上限 240），选项区拿剩下的空间；窄屏那一版预览矮于一整屏时会挤掉半列表，已修
   - 选项卡片之间有间距、长标签省略号截断，11 套界面风格的选择项带迷你底板色块
-- 📴 **纯离线**：无登录、无广告、无网络请求
+- 📴 **纯离线**：无登录、无广告、不上传任何数据。唯一会出网的一次，是你在设置页主动按下「检查更新」那个按钮（详见下一条），平时零请求
+- 🔄 **手动检查更新**（设置 → 关于）：点了才问一次「云端最新构建是哪次提交」，比对的是 CI 每次发布都覆盖的 `dev-build-sha.txt` 纯文本附件，不带设备标识、不传任何个人信息；有更新就给一条可复制的发布页地址，自己下 APK 装上。本地 `flutter run` 出来的包没注构建号，会老实显示「比不了」而不是「已是最新」
 
 ## 🛠 技术栈
 
@@ -56,7 +57,7 @@
 
 ```
 lib/
-├── core/                  # 常量、存储封装、彩蛋文案服务、Provider（clock/app/todo）
+├── core/                  # 常量、存储封装、彩蛋文案服务、手动检查更新、Provider（clock/app/todo）
 ├── flip_clock/            # 翻页时钟：动画渲染 + 外观表 + 主屏
 ├── progress_decor/        # 底层进度组件（CustomPainter 8 件 + 连续相位只在需要时挂）
 ├── theme/                 # 界面风格令牌（11 套 × 亮/暗）+ UiScope/UiLayer 注入
@@ -85,6 +86,7 @@ test/
 ├── todo_model_test.dart   # 模型与非法数据（5 例）
 ├── egg_service_test.dart  # 文案库与随机不重复（3 例）
 ├── egg_display_test.dart  # 彩蛋文案排版压测：长短/中英文/系统字号/极端组合（13 例）
+├── update_check_test.dart  # 手动检查更新：SHA 比对 + loopback 真实抓取 + 设置页接线（11 例）
 └── support/               # fake_storage（Hive 内存后端）/ fake_wakelock
 ```
 
@@ -99,10 +101,10 @@ flutter run
 
 ```bash
 flutter analyze   # No issues found!
-flutter test      # 191 tests passed
+flutter test      # 202 tests passed
 ```
 
-191 例只管「形态对不对」；翻页铰链、倒计时中按钮隐去、横屏手机设置分栏这三件事另外在模拟器上逐条截图看过（AVD `trace_pixel7`，1080×2400@420dpi → 横屏逻辑 914×411，装本轮 x86_64 release 包）。图证、启动参数与「软渲染帧率不代表真机」这条限制见 [REVIEW.md](./REVIEW.md) §9.8。**动画观感与进度组件好不好看要人眼判**，24 种动画 + 8 种进度组件的实机效果由用户在 dev-build 直链上自测。
+202 例只管「形态对不对」；翻页铰链、倒计时中按钮隐去、横屏手机设置分栏这三件事另外在模拟器上逐条截图看过（AVD `trace_pixel7`，1080×2400@420dpi → 横屏逻辑 914×411，装本轮 x86_64 release 包）。图证、启动参数与「软渲染帧率不代表真机」这条限制见 [REVIEW.md](./REVIEW.md) §9.8。**动画观感与进度组件好不好看要人眼判**，24 种动画 + 8 种进度组件的实机效果由用户在 dev-build 直链上自测。
 
 三个可注入的测试缝让「测过」这件事真的成立：
 
@@ -180,7 +182,7 @@ D:\dev\flutter\bin\flutter.bat build apk --release   # → build/app/outputs/flu
 
 | 平台 | 能不能装 | 在哪拿 |
 | --- | --- | --- |
-| **Android 平板** | ✅ 可直接安装 | Release 页的 `dev-build` 预发布（公开直链，免登录、不过期）：`app-arm64-v8a-release.apk`（平板优先）、`app-armeabi-v7a-release.apk`、`app-x86_64-release.apk`（模拟器/Chromebook）、`app-release.apk`（通用包）；另附 `apk-sha256.txt` 校验和（4 行，run #10 起含通用包） |
+| **Android 平板** | ✅ 可直接安装 | Release 页的 `dev-build` 预发布（公开直链，免登录、不过期）：`app-arm64-v8a-release.apk`（平板优先）、`app-armeabi-v7a-release.apk`、`app-x86_64-release.apk`（模拟器/Chromebook）、`app-release.apk`（通用包）；另附 `apk-sha256.txt` 校验和（4 行，run #10 起含通用包）与 `dev-build-sha.txt`（本次构建的完整 commit SHA，设置页「检查更新」就是比这个） |
 | Android（同批产物） | ✅ | 每次 run 的 Artifacts `timenote-release-apk`（要登录 GitHub，默认保留 90 天） |
 | **iPad** | ❌ 装不上真机 | 只在手动触发勾选 `ios` 时构建（`flutter build ios --no-codesign`），产物是未签名 `Runner.app.zip`。要能装必须在仓库 secrets 里放 Apple 签名凭据，走 Xcode 签好再上 TestFlight/Ad Hoc |
 | **华为鸿蒙平板** | ⚠️ 本机能出包，云端出不了 | 本机 `tool/build_hap.sh` → `build/ohos/hap/entry-default-unsigned.hap`（**未签名，装不上真机**；调试证书要华为账号在 DevEco 里申请）。GitHub Runner 拿不到 Flutter-OH SDK + 华为 Command Line Tools（在华为账号墙后），所以 CI 不构建鸿蒙 |
@@ -211,6 +213,8 @@ git push   # 云端构建完自动覆盖 dev-build 预发布的附件
 - ⚠️ **同一个包每轮构建的 sha256 都不同**：run #10 的 arm64 是 `9e03d469cb66…`，run #11 是 `357d9e82c16b…`，而字节数完全一样（17,909,554）。原因是 debug keystore 在 Runner 上每轮现生成，签名块变长不变 —— 所以 sha256 只能用来核对「**同一次 run** 的附件 == 同一次 run 的清单」，不能当版本标识、也不能跨轮比较。要确认装上去的是哪次提交，看 `dev-build` 正文首行的「最新提交：`xxxxxxx`」（实测 run #10=`e628133`、run #11=`94ddb91`）。同理别拿本机 arm64（17,917,607）去核对云端附件。
 - ✅ **字节级核过一遍**：run #11 的 `app-arm64-v8a-release.apk` 整份下回来 `sha256sum` = `357d9e82c16b…`，与**同一轮** `apk-sha256.txt` 第一行逐字相同，`wc -c` = 17,909,554，文件头尾也是合法 ZIP（`504b0304` + `504b0506`）。下载只能走 `api.github.com/.../releases/assets/{id}` + `Accept: application/octet-stream` + `curl -sL -C -` 断点续传（实测 8 轮才凑满，单轮增量 0.34 MB～5.9 MB 都不等）；`releases/download/...` 直链在本机停在 3,134,272 字节而 `-w` 仍报 HTTP=200，所以**别信状态码，要比字节数**。
 - ⚠️ `gh release upload --clobber` 是删了重建附件，asset id 每轮换（arm64 `712511360`→`712600392`）。旧 id 并不会下载失败，坏在**错配**：拿上一轮的字节核这一轮的清单，会得到「哈希被改」的假信号 —— 下之前重新取一次 `releases/tags/dev-build`。
+
+**下一轮起多一件附件（本轮改动，还没跑过真实 run）**：`flutter build apk` 现在带 `--dart-define=BUILD_SHA=$GITHUB_SHA`，`dev-build` 附件从 5 个变 6 个（新增 `dev-build-sha.txt`，内容就是那一行的完整 SHA），Release 正文同步提到两份 txt 各自的用途。设置页「检查更新」走的是 `releases/download/dev-build/dev-build-sha.txt` 这条**免登录公开直链**而不是 `api.github.com/repos/.../commits/main` —— 后者匿名 60 次/小时/IP，且要解析 markdown；前者只是一个纯文本，取回来和 APK 名字里的构建号比前 7 位。本机 `tool/build_hap.sh` 同样注入 `BUILD_SHA=$(git rev-parse HEAD)`。注意：上表那些 run #10/#11 的字节数都是**改动之前**的实测，本轮没有重新跑云端构建，所以「6 个附件」目前是预期而非取证。
 
 ## 🖼 界面风格（11 套整屏令牌）
 
