@@ -245,6 +245,8 @@ git tag -a v1.0.0 -m "..." && git push --follow-tags   # 另发一条正式版 R
 | `app-release.apk`（通用包） | 52,546,377 |
 | `apk-sha256.txt` | 357 |
 
+**推文档提交也会跑（run #16，`d4c8d66`）**：`android` 作业每一步 `success`，`dev-build-sha.txt` 跟着搬到这一轮的 commit。四个 APK 的字节数与 run #14 逐个相同（`52e4bf3`/`d4c8d66` 只动文档，`pubspec` 的 `assets:` 里没有文档），sha256 却全不同（arm64 `69145927…` → `5ef34ce3…`）—— 上面「debug keystore 每轮现生成」这条又多一个数据点。
+
 ## 🖼 界面风格（11 套整屏令牌）
 
 参考 [luckymaomi/ui-styles](https://luckymaomi.github.io/ui/styles/) 的 10 套风格页移植而来，令牌集中在 `lib/theme/ui_style.dart`（`uiStyleSpecs`，每套 `(亮, 暗)` 两版）。

@@ -712,6 +712,8 @@ grep -ac 52e4bf38fdaaa3b64daaaf7bdfcd219a541be980  .../kernel_blob.bin         �
 ### 16.6 本轮数字与边界
 
 - 改动只有文档：`README.md` / `REVIEW.md` / `HANDOFF-OHOS.md`，**没有碰一行 `lib/` 或 `test/`**；`flutter analyze` 仍 `No issues found!`，全量 `flutter test` 本轮也重跑了一遍确认仍是 **202 例**（`pubspec.yaml` 的 `assets:` 只列 `quotes.json` 和 `alert.wav`，所以文档改动确实不进编译输入，重跑只是为了把数字拿在手里而不是靠推理）。
-- **没有重新发布**：GitHub 上 `dev-build` 与 `v1.0.0` 的附件仍是 run #14/#15 那一批，云端数字（arm64 18,237,326 等）不改；本轮新出的 18,245,379 只是本机产物，两者差在 keystore 与那台 Runner 的环境，**不能互相核对**。
+- **本机没有重新发布，但推 main 本身就会触发一次发布**：这一轮的文档提交推上去之后 run #16（id `42059504934`）自动跑了，`android` 作业每一步 `success`，annotations 只剩 GitHub 自己那 2 条 boilerplate（Node 20 弃用 + ubuntu-latest 迁移预告），`v1.0.0` 那条正式版 Release 不受影响。`dev-build` 仍是 6 个附件，`dev-build-sha.txt` 跟着搬到 `d4c8d66f368e43c1904b55425b2980bb9f7bfb77`（41 字节，直链 `HTTP=200 / size_download=41`，与本地 `git rev-parse main` 逐字相同）。
+- **顺手拿到一个干净对照**：run #16 的四个 APK 字节数和 run #14 逐个相同（18,237,326 / 15,656,684 / 19,728,789 / 52,546,377），sha256 却全不同（arm64 `69145927…` → `5ef34ce3…`）。中间隔的 `52e4bf3`/`d4c8d66` 只动文档，而 `pubspec.yaml` 的 `assets:` 只声明 `quotes.json` + `alert.wav` —— 文档不进编译输入，所以字节数不变；哈希变仍然只来自每轮现生成的 debug keystore。这是 §十五 那条「同 commit 两轮：大小同、hash 不同」的第 3 个数据点，而且这次连提交内容都不同（只不同在文档），结论更硬。同轮互证照旧免下载：`apk-sha256.txt` 四行与 API 在每个 asset 上给的 `digest` 逐字相同。
+- 本机新出的 18,245,379 与云端这两轮的 18,237,326 差 8,053 字节，**不能互相核对**，差在 keystore 与那台 Runner 的环境。
 - 历史数字保留不动的有三处，都带轮次标签：REVIEW §9.6 的「本轮数字」、§9.8 截图装的那个 19,343,534 的 x86_64 包、HANDOFF 公开分发行里 run #10/#11 的取证。把它们改成今天的数就是造假。
 - 仍未验证的：真机点「检查更新」、鸿蒙真机运行（签名待用户）、动画观感。

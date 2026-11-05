@@ -267,6 +267,7 @@ RunCommandUtil.run(r, undefined, true)   // spawnSync(cmd, ["/d","/c", r], {wind
   - ✅ **补验了第九轮那句没跑过的 `--dart-define=BUILD_SHA`**：release 解包 `grep -ac <40位SHA> libs/arm64-v8a/libapp.so` = 1、debug 对 `kernel_blob.bin` 同样 = 1，鸿蒙包确认带构建号（装不上真机，所以「App 里能用」仍只是理论）。
   - ⚠️ **两条链的产物会同名互盖**：`ohos/entry/build/default/outputs/default/entry-default-unsigned.hap` 是 debug 与 release 共用的输出路径，本轮 debug 后跑，release 那份 23 MB 被就地覆盖 —— 以前文档写的「release 不复制到 `build/ohos/hap/`，两处各留一份」并不成立，现在 §0 改成「要同时留两份就在 release 跑完先改名」。
   - 本轮改动仍只有文档（`README.md` / `REVIEW.md` / `HANDOFF-OHOS.md`），`flutter analyze` = `No issues found!`（79.7 s）、全量 `flutter test` = `+202: All tests passed!`；`pubspec.yaml` 的 `assets:` 只声明 `quotes.json` + `alert.wav`，所以文档确实不进编译输入。
+  - ✅ 推 main 之后 run #16（id `42059504934`）`android` 作业每步 `success`、annotations 只剩 GitHub 的 2 条 boilerplate；`dev-build-sha.txt` 变成 `d4c8d66…`（== 本地 main），四个 APK 字节数与 run #14 逐个相同而 sha256 全不同 —— 又一次印证 debug keystore 每轮现生成，见 REVIEW §16.6。
 
 - [x] 当前工作树（2026-11-05 第三轮改动，**已提交并推送**）：提交 `cdceae9`「feat: 翻页动画重做（8 种·绕中缝铰链）+ 沉浸式待机，鸿蒙工程入库」，`59 files changed, 2188 insertions(+), 275 deletions(-)`。
   - 提交前实测：`git status --short` = 17 `M` + 9 `??`；`ios/Runner/GeneratedPluginRegistrant.{h,m}` 这 2 个 CRLF 假差异在 `git add` 前用 `git checkout -- ios` 还原（依据：`git diff --stat --ignore-cr-at-eol -- ios` 零行 stat，只吐 warning），所以最终提交是 **15 个 M + 44 个新文件 = 59**，与 `git diff --cached --name-only | wc -l` 一致；暂存后 `git status --short | grep -vE "^[MA]  "` 为空，确认没漏也没多。
