@@ -178,26 +178,28 @@ D:\dev\flutter\bin\flutter.bat build apk --release   # → build/app/outputs/flu
 
 ## 🤖 云端构建可安装包（GitHub Actions）
 
-推送 main 或手动触发都会跑 `pub get` → `analyze` → `test` → `build apk`，产物有两个去处：
+推送 main、推送 `v*` 标签或手动触发都会跑 `pub get` → `analyze` → `test` → `build apk`，产物有两个去处：
 
 | 平台 | 能不能装 | 在哪拿 |
 | --- | --- | --- |
-| **Android 平板** | ✅ 可直接安装 | Release 页的 `dev-build` 预发布（公开直链，免登录、不过期）：`app-arm64-v8a-release.apk`（平板优先）、`app-armeabi-v7a-release.apk`、`app-x86_64-release.apk`（模拟器/Chromebook）、`app-release.apk`（通用包）；另附 `apk-sha256.txt` 校验和（4 行，run #10 起含通用包）与 `dev-build-sha.txt`（本次构建的完整 commit SHA，设置页「检查更新」就是比这个） |
+| **Android 平板（正式版）** | ✅ 可直接安装 | <https://github.com/mjkyleo/timenote/releases> 里标 **Latest** 的那一条（现在是 `v1.0.0`）：4 个 APK + `apk-sha256.txt`，说明文字来自仓库里的 `RELEASE-NOTES.md`。推 `v*` 标签即由 CI 自动发布 |
+| **Android 平板（开发版）** | ✅ 可直接安装 | Release 页的 `dev-build` 预发布（公开直链，免登录、不过期）：`app-arm64-v8a-release.apk`（平板优先）、`app-armeabi-v7a-release.apk`、`app-x86_64-release.apk`（模拟器/Chromebook）、`app-release.apk`（通用包）；另附 `apk-sha256.txt` 校验和（4 行，run #10 起含通用包）与 `dev-build-sha.txt`（本次构建的完整 commit SHA，设置页「检查更新」就是比这个） |
 | Android（同批产物） | ✅ | 每次 run 的 Artifacts `timenote-release-apk`（要登录 GitHub，默认保留 90 天） |
 | **iPad** | ❌ 装不上真机 | 只在手动触发勾选 `ios` 时构建（`flutter build ios --no-codesign`），产物是未签名 `Runner.app.zip`。要能装必须在仓库 secrets 里放 Apple 签名凭据，走 Xcode 签好再上 TestFlight/Ad Hoc |
 | **华为鸿蒙平板** | ⚠️ 本机能出包，云端出不了 | 本机 `tool/build_hap.sh` → `build/ohos/hap/entry-default-unsigned.hap`（**未签名，装不上真机**；调试证书要华为账号在 DevEco 里申请）。GitHub Runner 拿不到 Flutter-OH SDK + 华为 Command Line Tools（在华为账号墙后），所以 CI 不构建鸿蒙 |
 
 ```bash
-git push   # 云端构建完自动覆盖 dev-build 预发布的附件
+git push                              # 云端构建完自动覆盖 dev-build 预发布的附件
+git tag -a v1.0.0 -m "..." && git push --follow-tags   # 另发一条正式版 Release（Latest）
 ```
 
-- APK 用 **debug keystore 签名**（`android/app/build.gradle.kts` 的 release 构建沿用 debug 签名配置）：允许「未知来源应用」后点开即装，可自用与分发测试，但**不能上传 Google Play**。
+- APK 用 **debug keystore 签名**（`android/app/build.gradle.kts` 的 release 构建沿用 debug 签名配置）：允许「未知来源应用」后点开即装，可自用与分发测试，但**不能上传 Google Play**。因为每轮的 keystore 是现生成的，**装正式版之前要先卸载已装的开发版**，否则系统按签名不一致拒绝（`INSTALL_FAILED_UPDATE_INCOMPATIBLE`）。
 - 应用图标 PNG 已经在仓库里（`android/app/src/main/res/mipmap-*/ic_launcher.png`，5 个 dpi），提示音 `alert.wav` 也在。`gradle-wrapper.jar` / `gradlew` **故意不入库**：Flutter 把 wrapper 归在 `DevelopmentArtifact.universal` 缓存产物里，每次构建 Android 前都会注入且**不覆盖已存在的文件**（`gradle_utils.dart:261-264`），所以 CI 原来那段 `curl` 下载步骤已删。本机验证方式：把 `gradlew`/`gradlew.bat`/jar/`local.properties` 四个移走模拟干净检出，`flutter build apk --release --split-per-abi` 仍然 23.9 s 出包并把四个文件补回来。
-- `dev-build` 这个 tag 由 CI 自己创建并复用，每次推 main 覆盖同名附件，所以永远只有一个「最新开发版」，不会攒一堆 release。
+- `dev-build` 这个 tag 由 CI 自己创建并复用，每次推 main 覆盖同名附件，所以永远只有一个「最新开发版」，不会攒一堆 release。正式版走另一条路：`v*` 标签一个版本一条 Release（`gh release create --latest`），互不覆盖；发版说明的正文放在仓库里的 `RELEASE-NOTES.md`，只有首行「对应提交 `xxxxxxx`」是 CI 现填的。
 
 **首轮真实验证（run #9，`cdceae9`）**：构建链全绿，`dev-build` 预发布被创建并发布出来，但 run 结论是 `failure` —— 挂的是最后一步里那句纯打印的自检（步骤只跑了 6 秒，附件那时已经传完），所以是「红叉但包已经发出去了」。要区分「没发出去」和「发出去后自检语句挂了」，看 run 的 steps 表而不是看红叉。
 
-**第二轮真实验证（run #10，`e628133`，2026-11-05）**：android job **13 步全 `success`**（446 秒，其中构建 APK 306 秒），ios 按设计 skipped。`dev-build` 现在是 5 个附件，免登录就能拿（本机直链会被截，稳妥走法见下面「字节级核过一遍」那条）：
+**第二轮真实验证（run #10，`e628133`，2026-11-05）**：android job **13 步全 `success`**（446 秒，其中构建 APK 306 秒），ios 按设计 skipped。那一轮 `dev-build` 是 5 个附件（run #14 起变 6 个，见下面第三轮），免登录就能拿（本机直链会被截，稳妥走法见下面「字节级核过一遍」那条）：
 
 | 附件 | 字节 |
 | --- | --- |
@@ -214,7 +216,25 @@ git push   # 云端构建完自动覆盖 dev-build 预发布的附件
 - ✅ **字节级核过一遍**：run #11 的 `app-arm64-v8a-release.apk` 整份下回来 `sha256sum` = `357d9e82c16b…`，与**同一轮** `apk-sha256.txt` 第一行逐字相同，`wc -c` = 17,909,554，文件头尾也是合法 ZIP（`504b0304` + `504b0506`）。下载只能走 `api.github.com/.../releases/assets/{id}` + `Accept: application/octet-stream` + `curl -sL -C -` 断点续传（实测 8 轮才凑满，单轮增量 0.34 MB～5.9 MB 都不等）；`releases/download/...` 直链在本机停在 3,134,272 字节而 `-w` 仍报 HTTP=200，所以**别信状态码，要比字节数**。
 - ⚠️ `gh release upload --clobber` 是删了重建附件，asset id 每轮换（arm64 `712511360`→`712600392`）。旧 id 并不会下载失败，坏在**错配**：拿上一轮的字节核这一轮的清单，会得到「哈希被改」的假信号 —— 下之前重新取一次 `releases/tags/dev-build`。
 
-**下一轮起多一件附件（本轮改动，还没跑过真实 run）**：`flutter build apk` 现在带 `--dart-define=BUILD_SHA=$GITHUB_SHA`，`dev-build` 附件从 5 个变 6 个（新增 `dev-build-sha.txt`，内容就是那一行的完整 SHA），Release 正文同步提到两份 txt 各自的用途。设置页「检查更新」走的是 `releases/download/dev-build/dev-build-sha.txt` 这条**免登录公开直链**而不是 `api.github.com/repos/.../commits/main` —— 后者匿名 60 次/小时/IP，且要解析 markdown；前者只是一个纯文本，取回来和 APK 名字里的构建号比前 7 位。本机 `tool/build_hap.sh` 同样注入 `BUILD_SHA=$(git rev-parse HEAD)`。注意：上表那些 run #10/#11 的字节数都是**改动之前**的实测，本轮没有重新跑云端构建，所以「6 个附件」目前是预期而非取证。
+**第三轮真实验证（run #14 推 main + run #15 推标签，都是 `947ecaf`，2026-11-05）**：两个 run 各自 10 步 / 9 步**全 `success`**，`annotations` 只剩 GitHub 自己的 2 条 boilerplate（Node 20 弃用 + ubuntu-latest 迁移预告）。
+
+| 事件 | 跑了哪个作业 | skipped | 发布结果 |
+| --- | --- | --- | --- |
+| 推 main（run #14） | `android` | `release`、`ios` | `dev-build` 预发布变 6 个附件（新增 `dev-build-sha.txt`，41 字节） |
+| 推 `v1.0.0` 标签（run #15） | `release` | `android`、`ios` | 新建 `v1.0.0`，`prerelease=false`、`draft=false`，5 个附件 |
+
+- ✅ **「检查更新」这条链路第一次真的有东西可读**：`releases/download/dev-build/dev-build-sha.txt` 取回来是 `947ecaf6649bc224b522d46414bc6f8d5e8fe5e2`，和本地 HEAD 逐字相同（这条路径在改动之前实测是 **404**，App 侧那种情形归「检查失败」）。走的是免登录直链，不是有 IP 限流的 `api.github.com/repos/.../commits/main`。
+- ✅ **`--latest` 生效**：`/releases/latest` 现在返回 `v1.0.0`（标题「时笺 TimeNote v1.0.0（Android 可安装包）」，正文首行是「对应提交 `947ecaf`」+ `RELEASE-NOTES.md` 全文，中文没乱码）。
+- ⚠️ **同一次提交、两轮构建 = 字节数全同、sha256 全不同**：`v1.0.0` 与 `dev-build` 这两轮的 arm64 都是 18,237,326 字节，而 digest 是 `855a0688…` 对 `69145927…`。这是上面那条「debug keystore 每轮现生成」的对照实验，也是为什么正式版说明里写「先卸载再装」。
+- ✅ **同轮互证不用下载 100MB**：`v1.0.0/apk-sha256.txt` 的四行与 GitHub API 自己在 asset 上给的 `digest` 字段逐字相同（4 个包全对得上），比整份下回来 `sha256sum` 便宜得多；真要字节级复现仍按上面那条走 assets API + 断点续传。
+
+| `v1.0.0` 附件 | 字节 |
+| --- | --- |
+| `app-arm64-v8a-release.apk`（平板优先） | 18,237,326 |
+| `app-armeabi-v7a-release.apk` | 15,656,684 |
+| `app-x86_64-release.apk` | 19,728,789 |
+| `app-release.apk`（通用包） | 52,546,377 |
+| `apk-sha256.txt` | 357 |
 
 ## 🖼 界面风格（11 套整屏令牌）
 

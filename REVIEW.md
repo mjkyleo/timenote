@@ -589,8 +589,65 @@ isPrerelease name publishedAt tagName tarballUrl targetCommitish uploadUrl url z
 ### 14.7 边界（没做到的部分）
 
 - **对外的三条 URL 今天本机实测过**（`curl -sL`，都是免登录）：① `releases/download/dev-build/apk-sha256.txt` 不带 UA = **200、357 字节**（和 README 记的那个数一致），带 UA 同为 200 —— 所以代码里那句「缺 UA 会 403」原先写错了，已改成注释说明**缺 UA 回 403 的是 `api.github.com`**（实测 403，正文写着 "Request forbidden by administrative rules… User-Agent header"），附件直链这条路上 UA 只是给以后换 API 时兜底；② `releases/download/dev-build/dev-build-sha.txt` 现在 **404**，符合预期（这轮没推 main，CI 还没生成过它），App 侧这种情形会归到「检查失败：没网络，或者云端还没发布过 dev-build 安装包」，文案不撒谎；③ 直链返回 302，`HttpClient` 默认跟随重定向，`followRedirects` 没改过。
-- **没在真机点过一次**。CI 那一侧的 `dev-build-sha.txt` 要等下一次推 main 才会第一次出现，本轮没有跑云端构建，所以「App 里按下按钮 → 显示远端短号 → 复制地址」这条链路只有 loopback 用例覆盖，「6 个附件」在 README 里也标注成**预期而非取证**。
+- **~~没在真机点过一次~~ → 后半条已由 §十五 的 run #14 补上**：`dev-build-sha.txt` 现在真的存在了（41 字节，内容 == 那一轮 `$GITHUB_SHA`），但**App 里按下按钮的那一次仍未在真机验证**：全链路只有 loopback 用例覆盖，云端取数是我用 `curl` 代跑的。「装 dev-build 包 → 设置 → 检查更新 → 显示『已是最新（构建 947ecaf）』」这条要用户自己在平板上确认。
 - **不做「谁新谁旧」的方向判断**。只比前 7 位是否相同，不同就报「云端有更新的构建」。如果本地其实比云端新（比如手动装过某轮之后的本地构建），这句话方向是反的；要严格判序得拉 commit 图，不值得为一个自用 dev-build 引这套复杂度。
 - **前 7 位理论上有碰撞**（同一提交序列里出现相同前缀）。判据会当成「已是最新」，概率按 git 短号惯例可忽略，但确实是个已知不严谨点。
 - **只有 Android 有意义**。iOS 侧 release 不构建、鸿蒙没签名，两处都装不上 dev-build 包，按钮在那些平台上只能告诉你「有新版」而没法装；代码不分平台，行为一致。
-- 编号说明：本轮 R21=手动检查更新。R17（包体积）顺带有了新数据点：新增一个 88 行的 Dart 文件、两条按钮，APK 尺寸变化没实测（本轮没出包）。
+- 编号说明：本轮 R21=手动检查更新。R17（包体积）的数据点：新增一个 88 行的 Dart 文件、两条按钮，arm64 包从 run #13（`2c6d5f4`，不含本功能）的 17,975,162 字节变成 run #14（`947ecaf`）的 18,237,326 字节，**+262,164**。但这不能全记到功能头上——debug keystore 每轮现生成，签名块本身就有几百字节到几十 KB 的浮动，同 commit 两轮字节数相同而 sha256 不同（见 §十五）说明浮动来源是签名块而不是代码。
+
+## 十五、第九轮：第一个正式版 v1.0.0
+
+用户丢来 Releases 页的链接说「我想发布这个 release」。取证口径先摆明：当时那一页**只有 `dev-build` 一条预发布**（CI 每轮覆盖，附件从 5 个变 6 个也是这一轮才发生的），仓库**没有任何版本标签**，而 `pubspec.yaml` 写着 `1.0.0+1`。三个问题问过之后定为：**v1.0.0 正式版** + **先把 R21 这轮代码提交推送一起发** + **APK 由 CI 按标签单独构建**（不搬 dev-build 的现成附件，避免本机重下 104MB）。
+
+### 15.1 工作流加了什么
+
+`.github/workflows/build-apk.yml`（153 → 226 行，本批 `84/3`）：
+
+- 触发多一条 `push.tags: ['v*']`。
+- `android` 作业加 `if: github.event_name != 'push' || github.ref == 'refs/heads/main'`，标签推送不会再顺手把 `dev-build` 覆盖一遍；`release` 作业反过来用 `if: startsWith(github.ref, 'refs/tags/v')`。两条门互斥，实测见 15.3。
+- `release` 作业把 analyze/test 也跑一遍（标签可能指向任何提交，不能让「正式版的包」跳过测试），构建参数与 `android` 作业一致（含 `--dart-define=BUILD_SHA`），产物 `gh release create "$TAG" --notes-file ... --latest`（**不带 `--prerelease`**），再 `gh release upload --clobber` 五个文件。
+
+发版说明的正文从仓库里的 `RELEASE-NOTES.md`（新，34 行）读，只有首行「对应提交 `947ecaf`（Flutter 3.47.8，Release 构建，debug keystore 签名）」由 CI 现填：
+
+```bash
+{ printf '对应提交 `%s`（…）。\n\n' "${GITHUB_SHA:0:7}" "$FLUTTER_VERSION"; cat RELEASE-NOTES.md; } > release-notes.md
+```
+
+### 15.2 为什么不能把说明文字写在 workflow 里（一条 YAML 坑）
+
+第一版我把整段发布说明用 `cat <<'EOF' … EOF` 内联在 `run: |` 里，正文按习惯顶格写 —— `yaml.safe_load` 直接炸：`line 178: could not find expected ':'`。原因是块标量的缩进由**第一行非空内容**决定（这里是 10 空格），中间突然冒出列 0 的行就把标量截断了。两条出路：把正文整体缩进再 `sed 's/^            //'` 脱缩进（脆，改一行就要重数空格），或者正文落到仓库文件里 `cat` 进来。**选了后者**，顺带好处是发版说明可以单独 review、也能给人直接读。
+
+其它两条本机工具事实：这台机器**没有 `gh` CLI、没有 `python`，只有 `py` 启动器**（自带 PyYAML）；`python` 不存在意味着 `py -c` 是唯一免安装的 YAML/JSON 校验路径。写脚本时 `py` 里的 `/tmp` 会解析成 Windows 路径而 `FileNotFoundError`，落盘要走仓库目录再删。校验三连：`py` 解析 YAML → 取出 `run` 脚本文本 → `bash -n`。
+
+### 15.3 云端取证（run #14 + run #15，都是 `947ecaf`）
+
+| run | 事件 | 作业结论 | 步数 | 发布结果 |
+| --- | --- | --- | --- | --- |
+| #14 `42051710530` | 推 main | `android` success，`release`/`ios` skipped | 10 步全绿 | `dev-build` 6 附件（新增 `dev-build-sha.txt`，41 字节） |
+| #15 `42051775970` | 推 `v1.0.0` | `release` success，`android`/`ios` skipped | 9 步全绿 | 新建 `v1.0.0`，5 附件 |
+
+- **互斥门实测生效**：#14 跳过 `release`、#15 跳过 `android`，所以 `dev-build` 的附件没被标签那一轮覆盖掉。
+- `dev-build-sha.txt` 取回来是 `947ecaf6649bc224b522d46414bc6f8d5e8fe5e2`，与本地 `git rev-parse HEAD` 逐字相同；改动之前同一 URL 实测 **404**。R21 的取数链路从此真的有东西可读（`curl` 代跑，App 内那一次点击仍待真机）。
+- `v1.0.0`：`prerelease=false`、`draft=false`，`/releases/latest` 返回它（`--latest` 这个 flag 在 Runner 的 gh 版本上可用，实测确认）；正文中文无乱码，标题「时笺 TimeNote v1.0.0（Android 可安装包）」。
+- `annotations` 只有 GitHub 自己的 2 条 boilerplate（Node 20 弃用、ubuntu-latest 迁移预告），没有我们那条 `::warning::` —— 两个分支必走其一，所以末尾自检打印也成功了。
+- 附件字节：arm64 18,237,326 / armeabi-v7a 15,656,684 / x86_64 19,728,789 / 通用包 52,546,377 / `apk-sha256.txt` 357。
+
+### 15.4 一次免费的对照实验
+
+`v1.0.0`（run #15）与 `dev-build`（run #14）是**同一个提交**、两轮独立构建：四个包的字节数**完全相同**，而 GitHub API 给的 asset `digest` 四个**全不一样**（arm64 `855a0688…` 对 `69145927…`）。这把此前只在 README 里当推论写的「debug keystore 每轮现生成 → sha256 只能同轮自比」变成了实测，也正是发布说明里加「先卸载再装」那条的原因（跨轮签名不一致 → `INSTALL_FAILED_UPDATE_INCOMPATIBLE`）。
+
+顺带一条更省事的核对法：**同轮互证不必下载 100MB**。`v1.0.0/apk-sha256.txt` 的四行与 API 在 asset 上直接暴露的 `digest` 字段逐字相同，四个包全对上；以前的做法是整份 `curl` 回来 `sha256sum`（实测要断点续传 8 轮）。
+
+### 15.5 本轮数字
+
+- 提交 `947ecaf`（作者 `Ky <125885091+mjkyleo@users.noreply.github.com>`，仓库开了邮箱隐私，qq 邮箱会被 GH007 拒）：9 个文件 `569/13`，其中 `.github/workflows/build-apk.yml` `84/3`、`RELEASE-NOTES.md` `34/0`、`REVIEW.md` `68/0`、`README.md` `9/5`。
+- 注解标签 `v1.0.0`（tag 对象 `9b9409f`，tagger 同为 noreply 邮箱）→ 指向 `947ecaf`；`main` 与 `v1.0.0` 都走 SSH 443 推送成功，推完 `git update-ref refs/remotes/origin/main 947ecaf` 对齐本地远端 ref。
+- 测试没有新增用例（这一轮纯 CI + 文档），全量仍 **202 例**、`flutter analyze` 仍 `No issues found!`。
+
+### 15.6 边界（没做到的部分）
+
+- **`ios/Runner/GeneratedPluginRegistrant.{h,m}` 仍留在工作区未提交**：`git diff` 没有任何 hunk，纯 CRLF 抖动，故意不入库；`flutter` 工具链每次构建都会重写它们。
+- **GitHub 上没有任何 secrets**，正式版仍用每轮现生成的 debug keystore 签名 —— 所以这条 Release 是「可直接装的自用/测试包」，不是商店包，也不能指望它做增量升级签名。要 Google Play 得另配 release keystore 并入库安全存放。
+- **`--latest` 只影响 Releases 页那个绿色标签**，不影响设置页「检查更新」（它读 `dev-build` 的 txt）。也就是说正式版发出去后，App 里的「检查更新」仍然只看开发版那条通道，这是有意保持的单一口径。
+- 未验证：真机上点「检查更新」的实际观感、v1.0.0 包装上平板后是否需要先卸载（预期需要，见 15.4）。
+
