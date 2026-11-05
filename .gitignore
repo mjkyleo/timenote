@@ -9,6 +9,9 @@ flutter_*.log
 .flutter-plugins-dependencies
 # 本机 PUB_HOSTED_URL 是 pub.flutter-io.cn，写进 lock 会把 CI 也拽到该镜像
 pubspec.lock
+# 鸿蒙构建时由 tool/build_hap.sh 从 tool/pubspec_overrides.ohos.yaml 复制出来，
+# 只在本机存在；提交会让标准 Flutter（含 CI）解析到 TargetPlatform.ohos 而编译失败
+pubspec_overrides.yaml
 *.iml
 *.ipr
 *.iws

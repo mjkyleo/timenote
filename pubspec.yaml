@@ -14,13 +14,24 @@ dependencies:
   hive_flutter: ^1.1.0
   wakelock_plus: ^1.2.4
   audioplayers: ^6.0.0
+  # 鸿蒙平台实现（仅在 Flutter-OH 构建 ohos 目标时被插件注册表选中，
+  # 对 android/ios 构建无副作用）。hive 落盘依赖的 path_provider 也需要它才认 ohos。
+  path_provider_ohos: ^2.2.1
+  wakelock_plus_ohos: ^0.0.3
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   fake_async: ^1.3.1
   flutter_lints: ^4.0.0
-  wakelock_plus_platform_interface: ^1.7.0
+  # 1.7.0 要求 Dart >=3.12，Flutter-OH(3.41.9) 自带 Dart 3.11.5 会解析失败；
+  # 用 ^1.6.0 让两个 SDK 各自挑到兼容版本。
+  wakelock_plus_platform_interface: ^1.6.0
+
+# 鸿蒙专用的依赖覆盖放在 tool/pubspec_overrides.ohos.yaml，构建 hap 时由
+# tool/build_hap.sh 复制成 pubspec_overrides.yaml（已 gitignore）。
+# 不能写在这里：CPF-Flutter 的 audioplayers 适配版源码用了 TargetPlatform.ohos，
+# 标准 Flutter SDK 没有这个枚举成员，android/ios 构建与 CI 会直接编译失败。
 
 flutter:
   uses-material-design: true

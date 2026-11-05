@@ -92,6 +92,16 @@ class _ClockViewState extends ConsumerState<ClockView> {
     });
   }
 
+  /// 控件层：淡出后连点击一起屏蔽，点屏幕任意处唤回
+  ///
+  /// 起表之后用户只要数字，倒计时按钮和右上角入口都算噪声；
+  /// 待机屏和倒计时共用这一套自动隐藏，行为只有一处定义。
+  Widget _chrome(Widget child) => AnimatedOpacity(
+        opacity: _chromeVisible ? 1 : 0,
+        duration: const Duration(milliseconds: 250),
+        child: IgnorePointer(ignoring: !_chromeVisible, child: child),
+      );
+
   Future<void> _onCountdownFinished() async {
     final setting = ref.read(appSettingsNotifierProvider);
     // 彩蛋先上屏：提示音走平台通道与文件 IO，不能把视觉反馈挡在后面
@@ -171,38 +181,35 @@ class _ClockViewState extends ConsumerState<ClockView> {
                       child: _mainArea(appSetting, clockState),
                     ),
                   ),
+                  // 进度条是「还在计时」的唯一凭据，沉浸式状态下也留着；
+                  // 按钮是操作入口，藏起来才是沉浸
                   if (clockState.workMode == ClockWorkMode.countdown)
                     _progressBar(clockState, tokens),
-                  _controls(appSetting, clockState, notifier, tokens),
+                  _chrome(_controls(appSetting, clockState, notifier, tokens)),
                 ],
               ),
               Positioned(
                 top: 16,
                 right: 20,
-                child: AnimatedOpacity(
-                  opacity: _chromeVisible ? 1 : 0,
-                  duration: const Duration(milliseconds: 250),
-                  child: IgnorePointer(
-                    ignoring: !_chromeVisible,
-                    child: SafeArea(
-                      child: Row(
-                        children: [
-                          IconButton(
-                            icon: const Icon(Icons.settings, size: 28),
-                            color: fg,
-                            tooltip: '设置',
-                            onPressed: _openSettings,
-                          ),
-                          const SizedBox(width: 8),
-                          IconButton(
-                            icon: const Icon(Icons.menu, size: 28),
-                            color: fg,
-                            tooltip: '待办清单',
-                            onPressed: () =>
-                                _scaffoldKey.currentState?.openEndDrawer(),
-                          ),
-                        ],
-                      ),
+                child: _chrome(
+                  SafeArea(
+                    child: Row(
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.settings, size: 28),
+                          color: fg,
+                          tooltip: '设置',
+                          onPressed: _openSettings,
+                        ),
+                        const SizedBox(width: 8),
+                        IconButton(
+                          icon: const Icon(Icons.menu, size: 28),
+                          color: fg,
+                          tooltip: '待办清单',
+                          onPressed: () =>
+                              _scaffoldKey.currentState?.openEndDrawer(),
+                        ),
+                      ],
                     ),
                   ),
                 ),
@@ -385,6 +392,12 @@ class _CustomCountdownDialogState extends State<_CustomCountdownDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
+      // 横屏手机上软键盘会把弹窗可用高度压到 150 逻辑像素左右：AlertDialog 的外边距
+      // 是 viewInsets + insetPadding 之和，非 scrollable 的 content 会被 Flexible 压成
+      // 3 像素高，输入框整块消失（Pixel7 横屏实测）。三处一起改才留得住输入区。
+      scrollable: true,
+      contentPadding: const EdgeInsets.fromLTRB(24, 8, 24, 8),
+      actionsPadding: const EdgeInsets.fromLTRB(24, 0, 24, 12),
       title: const Text('自定义倒计时'),
       content: Column(
         mainAxisSize: MainAxisSize.min,
@@ -392,15 +405,16 @@ class _CustomCountdownDialogState extends State<_CustomCountdownDialog> {
         children: [
           TextField(
             controller: _controller,
-            autofocus: true,
+            // 不自动抢焦点：一抢焦点就弹键盘，弹窗立刻被压瘪；改成用户点输入框才弹，
+            // 且 15/30/45/60 快捷键不需要键盘就能用。
+            autofocus: false,
             keyboardType: TextInputType.number,
             maxLength: 3,
             decoration: InputDecoration(
               labelText: '分钟',
+              hintText: '${AppConstants.minCountdownMinutes}-${AppConstants.maxCountdownMinutes}',
               counterText: '',
               errorText: _error,
-              helperText:
-                  '${AppConstants.minCountdownMinutes}-${AppConstants.maxCountdownMinutes} 分钟',
             ),
             onSubmitted: (_) => _submit(),
           ),
@@ -411,10 +425,7 @@ class _CustomCountdownDialogState extends State<_CustomCountdownDialog> {
               for (final min in const [15, 30, 45, 60])
                 ActionChip(
                   label: Text('$min'),
-                  onPressed: () {
-                    _controller.text = '$min';
-                    Navigator.of(context).pop(min);
-                  },
+                  onPressed: () => Navigator.of(context).pop(min),
                 ),
             ],
           ),

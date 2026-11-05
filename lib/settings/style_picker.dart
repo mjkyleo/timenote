@@ -47,10 +47,16 @@ Widget buildStyleItem(
               Icon(Icons.check, size: 16, color: theme.colorScheme.primary),
               const SizedBox(width: 6),
             ],
-            Text(
-              label,
-              style: (labelStyle ?? theme.textTheme.bodyMedium)
-                  ?.copyWith(fontWeight: selected ? FontWeight.w700 : null),
+            // 窄屏 + 大字号数字样式（镂空描边/纤细思源的 label 用自己的样式渲染）
+            // 时，芯片会比可用宽还宽；不兜住就是一排黄黑溢出条
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: (labelStyle ?? theme.textTheme.bodyMedium)
+                    ?.copyWith(fontWeight: selected ? FontWeight.w700 : null),
+              ),
             ),
           ],
         ),
@@ -159,6 +165,12 @@ String flipAnimName(FlipAnimStyle s) {
       return '分段碎裂翻';
     case FlipAnimStyle.fadeFlip:
       return '渐变溶解翻';
+    case FlipAnimStyle.tickerRoll:
+      return '滚筒走字';
+    case FlipAnimStyle.dropSettle:
+      return '落体回弹';
+    case FlipAnimStyle.autoMix:
+      return '混合轮换';
   }
 }
 

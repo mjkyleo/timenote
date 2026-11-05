@@ -13,7 +13,7 @@
 | `flutter test` | 资源缺失直接失败（见 R2） | `+52: All tests passed!`（6 个测试文件） |
 | 临时移走 `assets/audio/` 再跑 `flutter test` | — | `Error detected in pubspec.yaml: No file or variants found for asset: assets/audio/alert.wav. / Error: Failed to build asset bundle` |
 
-测试分布：`app_widget_test.dart` 18、`flip_rendering_test.dart` 11、`clock_notifier_test.dart` 12、`todo_model_test.dart` 5、`storage_service_test.dart` 3、`egg_service_test.dart` 3。
+测试分布（第一轮修复后）：`app_widget_test.dart` 18、`flip_rendering_test.dart` 11、`clock_notifier_test.dart` 12、`todo_model_test.dart` 5、`storage_service_test.dart` 3、`egg_service_test.dart` 3。第三轮之后为 86 例，逐文件分布见 §9.6。
 
 ## 二、缺陷清单与处置
 
@@ -121,7 +121,9 @@
 ## 六、建议的后续动作（按性价比排序）
 
 1. 连一台 Android 设备跑 `flutter run`，人工确认常亮、横屏、提示音、抽屉手势；把结论补进本文件。
+   - ✅ 2026-11-05 做了：Android 模拟器（Pixel 7 AVD，density 420，横屏）逐项验过常亮/横屏/提示音/倒计时/抽屉/翻页/彩蛋停留，并因此抓出**两个只有真机尺寸才暴露的缺陷**：① 横屏软键盘把自定义倒计时弹窗压瘪（`AlertDialog` 外边距 = viewInsets + insetPadding），已修 + 2 条回归测试；② 待机屏带着状态栏（3:05 / LTE / 电量 / 手势条），破坏 Fliqlo 式整屏观感，已改为 `SystemUiMode.immersiveSticky`（鸿蒙侧 `flutter_ohos` 的 `PlatformPlugin` 有显式实现，不是空调用）。过程见 [HANDOFF-OHOS.md](./HANDOFF-OHOS.md) §6.6 / §6.7。边缘滑动开抽屉仍未单独实测。
 2. 决定 `gradle-wrapper.jar` 与应用图标是否纳入版本库；纳入后可以删掉 CI 里两段生成逻辑（现在是 CI 从 `raw.githubusercontent.com` 下载 jar，属于隐性供应链面）。
+   - ✅ 2026-11-05 做了，但选择**不提交 jar**：Flutter 把 wrapper 归为 `DevelopmentArtifact.universal` 缓存产物，构建前必注入且 `shouldCopyFile: !destinationFile.existsSync()` 不覆盖工程文件（`gradle_utils.dart:261-264`）—— 本机模拟干净检出（移走 `gradlew`/`gradlew.bat`/jar/`local.properties`）后同一条 CI 命令 23.9 s 正常出包。CI 的 curl 下载步骤已删，隐性供应链面照样消掉。图标 5 个 dpi 则真实入库。
 3. 若要真正兑现「10 种画面风格」，打包 5 款免费商用字体并在 `pubspec.yaml` 声明 `fonts:`，同时把 `styleFontMap` 的 family 名与字体文件名校对一遍。
 4. 逐条审校 520 条文案（出处、错别字、是否要按「惜时/学习/心动/向往/外文/国风」分类）；`EggService` 目前是静态可变状态，若以后要支持多语言/用户自定义，再考虑改成 Provider 注入。
 
@@ -170,7 +172,89 @@ classic 的两版令牌没有任何底板装饰（`hasPlateDecor == false`），
 - **毛玻璃是模拟的**：真 `BackdropFilter` 需要可模糊的背景内容，待机屏是纯色/渐变，糊不出东西，所以用「半透明分层 + 1px 亮线」表达同一套视觉规则。
 - **颗粒/团块/花纹是固定种子的静态绘制**，放在 `RepaintBoundary` 里且位于每秒重建的时钟子树之外，不逐帧重算随机数；但没有在真机上量过帧率。
 - 11 套 × 黑白 = 22 组只做了 800×600 的 widget 冒烟（主屏 + 抽屉 + 设置页，`takeException` 为空即无异常无溢出），**观感未经人眼验收**，字体族在其他平台的回退也未实测。
+  - 【2026-11-05 更新】观感这一条已经补上：Android 模拟器（Pixel 7 AVD，density 420，横屏）逐套切过并截图对比，`serif`/`monospace` 在 Android 的映射正常；顺带在真机尺寸下抓出一个 widget 测试测不到的缺陷（横屏软键盘把自定义倒计时弹窗压瘪，`dialog.dart:268` 的外边距 = viewInsets + insetPadding），修复 + 2 条回归测试见 [HANDOFF-OHOS.md](./HANDOFF-OHOS.md) §6.6，套件 62 → 64 例。仍未实测：鸿蒙（未签名装不上真机）、真机帧率。
 
 ### 8.6 本轮规模（实测）
 
 `git diff --cached --stat`（含新文件）：**15 个文件，+1312 / −143**，其中 `lib/` 11 个文件、新增层次 `lib/theme/` 与 `test/ui_style_test.dart`。测试从 52 例增至 **62 例**（`ui_style_test.dart` 10 例：令牌完整性 5 例 + 风格真生效与全矩阵 5 例）。
+
+## 九、第三轮：翻页动画重做 + 沉浸式待机 + 设置分栏 + 包体溯源
+
+用户反馈原话：「翻页的动画太生硬了，而且开始以后没有隐藏那些倒计时的按钮，理想的效果是一种沉浸式的，点击开始以后才开始……设置中的一个布局不合理，还有这个软件为什么这么大呢，功能这么简单，不至于吧 / 关于动画不要局限在一种翻页效果，可以用不同的效果」。四条逐个记在下面。
+
+### 9.1 「生硬」的根因是架构，不是调参
+
+- 旧实现把整串 `HH:MM:SS` 交给一个 `AnimatedSwitcher`，`transitionBuilder` 给新旧两个 child **各自一份 0→1 的独立动画**，旋转轴在牌子几何中心。这种 API 形状**表达不了真实翻牌**：真实的中缝翻页是「上叶绕中缝倒下 → 翻到中途下叶接住继续 → 落平」，两半必须在同一个进度上协同，而 AnimatedSwitcher 只给每个 child 一条自己的曲线。所以无论怎么调 duration/curve 都还是「整块牌子绕中间转一下」，这就是生硬感的来源。
+- 渲染层 API 改成 `FlipRenderer.transition(newChild:, oldChild:, t:)`（`lib/flip_clock/flip_renderer.dart:14`），并且**静止判定收进基类**：`t >= 1` 直接返回 `newChild`，只有 `< 1` 才进子类的 `flip()`。子类因此**不可能忘记回到平铺**——R3（书页卷曲把数字永久冻在侧立态）那一类缺陷的复发路径被结构性堵掉。
+- **逐格翻**：`_FlipBoard` 把字符串拆成一格一个 `_FlipCell`（`lib/flip_clock/flip_card_widget.dart:149`、`:223`），只有 `char` 真的变化的那格起自己的 `AnimationController`（`:272`），`:` 和没变的位保持静止；格宽下限用 `TextPainter('0')` 量出来的宽度锁住（`:205`），否则走秒时整串会左右抖。
+- **铰链与光影**：上叶用 `Align(heightFactor: 0.5, topCenter)` 裁出来后绕自己的下缘转（`alignment: bottomCenter`），下叶镜像绕上缘（`_hingedLeaf`，`lib/flip_clock/flip_renderer.dart:56`），四层 Stack 按「新牌在下、旧牌在上」叠，中缝不断裂；翻起的角度按 `|sin θ| × 0.62` 加深那面的渐变阴影（`:40`），靠缝受光、自由端进暗。
+- **缓动分层**：0→0.42 用 `Curves.easeInCubic` 加速下落，0.42→1 用 `Curves.easeOutBack` 收尾（落下时有极小过冲＝回弹）；分段碎裂、滑动、滚筒也各自配了 `bounceOut`/`easeOutBack`，不再是线性。
+- **动画从 5 种加到 8 种**：新增「滚筒走字」「落体回弹」「混合轮换」。混合轮换（`FlipAnimStyle.autoMix`，轮换表 `flipMixCycle` 见 `lib/flip_clock/flip_renderer.dart:399`）每次翻页换一种，把「不要局限一种」直接做成用户能选的一项，而不是替用户决定。
+
+### 9.2 沉浸式待机：一处定义，按钮与入口一起退场
+
+原先只有右上角两个 `IconButton` 被自动隐藏逻辑管着，底部倒计时胶囊不在其中——所以「点了开始之后屏幕上还是一排按钮」。现在 `_chrome()` 这个包装函数同时套在底部控件层和右上角入口上（`lib/flip_clock/clock_view.dart:99`）：淡出 250ms，同时 `IgnorePointer` 挡住误触，点屏幕任意处由最外层 `Listener` 唤回并重新计时 6 秒。**进度条不藏**——它是「还在计时」的唯一凭据，按钮才是噪声。
+
+### 9.3 设置页分栏（那条没具体说的「布局不合理」）
+
+用户没指明是哪一处，按实测定位到 `LayoutBuilder` 只看宽度：`constraints.maxWidth >= 760` 在横屏手机（Pixel 7 逻辑 914×411）也成立，于是走左右两栏，而预览高度写死 210、选项区只剩 145 高，一整屏滚不出几行。改成宽 + 高双条件判定（`lib/settings/settings_page.dart:47`），窄版按 42% 高度收放预览并夹在 140–240（`:51`）；选项 `Wrap` 补 `spacing/runSpacing`（`:183`），卡片标签 `Flexible` + 省略号，不再挤出越界。
+
+### 9.4 「为什么这么大」——用空壳 Demo 对照实测
+
+同版本 SDK 各出一个 arm64 release：空壳 `flutter create` Demo **15,503,242** 字节，时笺 **17,917,607** 字节，差 2,414,365。`libflutter.so` 两份**逐字节相同**（11,763,360），差值全在 `libapp.so`（Dart AOT，3,212,168 → 5,440,392，插件与自己的代码）和 dex 胶水（520,160 → 573,424）。自己的素材只有 `quotes.json` 27,867 + `alert.wav` 30,912 = 58,779 字节，占未压缩总量 18,268,158 的 0.3%。所以「功能这么简单却也 17MB」是 Flutter 的框架底价，不是包里有冗余。完整对照表在 README「本机出包（Android）」。
+
+对照工程留在本机 `D:/scratch/sizeprobe`（`flutter create` 空壳，同 SDK 同参数出包，arm64 15,503,242 / arm32 12,709,602 / x86_64 16,945,556），随时可以重跑校验；它不属于仓库，不需要时可删。
+
+### 9.5 反向验证（三条，改坏→必须变红→还原后全绿）
+
+| 改坏的地方 | 应变红的用例 | 实测结果 |
+| --- | --- | --- |
+| 删掉 `_FlipCell.didUpdateWidget` 里「字符没变就 return」的判断 | 「只有变了的格子翻页，没变的格子保持静止」 | 红：`Found 2 widgets with type "Transform"…`，reason 打到 `1 这一格没变，不该被施加任何翻转变换` |
+| 底部控件层不套 `_chrome()` | 「起表 6 秒后倒计时按钮一并隐去，点屏幕唤回后仍可操作」 | 红：`Expected: exactly 2 matching candidates / Actual: Found 1 widget with type "AnimatedOpacity"` |
+| `_hingedLeaf` 的 `alignment` 从 `bottomCenter/topCenter` 改成 `center` | 「经典翻牌绕中缝铰链，而不是整块绕中心 tipping」 | 红：`实测铰链：[Alignment.center, Alignment.center]` |
+
+三条还原后 `flutter analyze` → `No issues found!`，`flutter test` → `+86: All tests passed!`。
+
+### 9.6 本轮数字（实测）
+
+- 测试 64 → **86 例**：`app_widget_test.dart` 22、`flip_rendering_test.dart` 31、`ui_style_test.dart` 10、`clock_notifier_test.dart` 12、`storage_service_test.dart` 3、`todo_model_test.dart` 5、`egg_service_test.dart` 3（逐文件单独跑 `flutter test <file>` 取 `+N`，与全量 `+86` 一致）。
+- 动画 5 种 → 8 种（含混合轮换）。
+- APK（重新出包）：arm64 17,917,607 / arm32 15,255,041 / x86_64 19,343,534 / fat 51,423,838 / debug 182,984,197 字节。
+- 出包时间对不上过，所以拿当前代码又重跑了一次 `--split-per-abi`（14:36）：三个 ABI 的字节数与 12:52 那次**逐个相同**（17,917,607 / 15,255,041 / 19,343,534）。13:04–13:08 对 `clock_view.dart`/`flip_renderer.dart` 的改动只是 §9.5 反向验证的「改坏→还原」，编译输入等价 —— 也就是说 §9.8 那批截图装的就是当前代码的包（这是**字节数级**的一致，不是 sha 级；fat 与 debug 两个包没重跑）。
+
+### 9.7 边界（没做到的部分）
+
+- 8 种动画与逐格翻页的正确性由 widget 测试保证（每个进度点都在动、t=1 只剩新数字、混合轮换 5 次翻页出现 >2 种不同中间态），**但「顺不顺眼」这件事测试给不出结论**；模拟器视验见 §9.8。
+- 帧率没量过：新实现是每格一个 controller + 每帧若干 `Transform`/`DecoratedBox`，逻辑上只在真正变化的格子与动画期间重建，但未在设备上抓过 frame timeline。
+
+### 9.8 模拟器实机视验（①动画 ②沉浸式 ③设置布局看图确认；④包体是数字对照，见 §9.4）
+
+环境：AVD `trace_pixel7`，`hw.lcd.width/height = 1080×2400`、`hw.lcd.density = 420`（即 scale 2.625，横屏逻辑 **914.3×411.4**），system image `android-36 google_apis_playstore x86_64`；装的是本轮重出的 `app-x86_64-release.apk`（19,343,534 字节）。截图在 `C:\Users\86132\AppData\Local\Temp\shots\`。
+
+第一次启动被坏快照卡住：`error while loading state for instance 0x0 of device 'kvm-tpr-opt'` / `Failed to load snapshot 'default_boot'`，设备一直停在 `offline`。杀掉 qemu 进程树后改用无头且不落快照的参数重启，44 秒进入桌面：
+
+```
+emulator -avd trace_pixel7 -no-window -no-snapshot-save -no-boot-anim -no-audio -gpu swiftshader_indirect
+```
+
+| 图 | 证的是哪一条 | 图里能看到什么 |
+| --- | --- | --- |
+| `24_cd_immersive.png` | ②沉浸式待机 | 倒计时 `00:24:50`，**底部控件与右上角入口全部不在**，只剩数字 + 一条进度条；末位正好被拍到翻落中的上半页（灰渐变 + 折线），说明隐藏不等于停表 |
+| `22_countdown_hidden.png` | ②的副作用即证据 | chrome 已隐身后，一次「25 分」点击被系统吃掉（`IgnorePointer` 生效），数字没跳——按钮看不见时点不到 |
+| `20_main_chips.png` | ②唤回 | 点屏幕一下，控件与入口立刻回来，可继续操作 |
+| `13_scroll_up.png`、`burst_09.png` | ①动画不再生硬 | 经典翻牌的中缝铰链中间态：上半页带阴影向下折、下半页新数字渐显，缝隙连续不脱开（`burst_09` 抓到 `05:15:06` 末位正在落页） |
+| `33_flip_styles.png` | ①8 种效果 | 设置页「翻页动画样式（8 种）」8 个 chip 全在（经典机场翻牌✓ / 书页卷曲翻页 / 滑动翻页 / 分段碎裂翻 / 渐变溶解翻 / 滚筒走字 / 落体回弹 / 混合轮换），预览条正停在翻页中间态 |
+| `mix_1..8.png` | ①混合轮换真的换 | 连拍 8 帧（22,306–27,923 字节，逐帧大小不同 = 每帧画面真的在变）；`mix_5.png` 里 `00:20:38` 末位是两段字形交叠的旋转中间态，与经典翻牌的铰链形态不同 |
+| `11_settings.png`、`12_scroll1.png`、`13_scroll_up.png` | ③设置布局 | 914×411 横屏走的是窄版：预览条压在上方、选项列表整宽铺在下面，翻页不再「一整屏滚不出几行」，也没有溢出红条。按 `settings_page.dart:52` 算：`maxHeight = 411.4 - 56 = 355.4`，预览 `355.4 × 0.42 = 149.3` 逻辑像素（旧版写死 210，选项只剩 145 高） |
+
+视验的边界要讲清楚：`swiftshader_indirect` 是 CPU 软渲染，**帧率与流畅度不代表真机**，所以这里只能确认「形态对不对（铰链、逐格、隐藏、布局）」，不能确认「60fps 下顺不顺眼」；后者需要在真机上跑，§9.7 的帧率缺口依旧没被这张表填上。
+
+### 9.9 鸿蒙链路同轮复跑（渲染层重写会不会打挂 ohos）
+
+重写的是纯 Dart（`Transform`/`Matrix4`/`ClipRect`，没有新平台通道），逻辑上不该影响 ohos，但「不该」不等于验过，所以两条链路各复跑一次（14:28–14:31）：
+
+- debug：`tool/build_hap.sh` → `Running Hvigor task assembleHap... 64.2s`，`√ Built build\ohos\hap\entry-default-unsigned.hap`，125,814,260 字节（比上一版 +37,456，其中 `kernel_blob.bin` +38,256），24 个文件。
+- release：`tool/build_hap.sh --release` → 107.2s，`EXIT=0`，22,748,875 字节、21 个文件、`libapp.so` 5,325,744 B。
+- 顺手抓到一个文档错误并改掉：**release 不往 `build/ohos/hap/` 复制**（日志只打印签名提示），之前 HANDOFF 写的「release 包躺在 build/ohos/hap/」是拿错文件得出的；现在两处落点分别写明。
+- release 的字节数与重做前完全相同，看着像没重编。用符号否掉了：`app.so` 时间戳是本次的 14:29，二进制里 `grep -ac` 查到本轮才加的 `autoMix` 与 `_hingedLeaf`（两者在 `git diff` 里都是 `+` 行）→ 是当前代码，同大小是巧合。
+- 仍未验：ohos 侧的运行表现（未签名装不上真机，§5 待办 6）。所以「8 种动画在鸿蒙上画得对不对」目前只有「编译进包 + Dart 层同一份代码」这一级保证。

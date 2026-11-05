@@ -73,6 +73,19 @@ void main() {
     await pumpFrames(tester, 2, const Duration(milliseconds: 50));
   }
 
+  /// 翻页板把时间拆成一格一格的 Text，按屏幕顺序拼回完整字符串
+  String clockText(WidgetTester tester) => tester
+      .widgetList<Text>(find.descendant(
+          of: find.byType(FlipCardWidget), matching: find.byType(Text)))
+      .map((t) => t.data ?? '')
+      .join();
+
+  /// 翻页中途旧牌和新牌同时在树里，拼出来的字符串会多几位；读数值要先过了动画时长
+  Future<String> readClock(WidgetTester tester) async {
+    await pumpFrames(tester, 6, const Duration(milliseconds: 100));
+    return clockText(tester);
+  }
+
   Future<void> openDrawer(WidgetTester tester) async {
     await tester.tap(find.byIcon(Icons.menu));
     await pumpFrames(tester, 8, const Duration(milliseconds: 60));
@@ -108,7 +121,7 @@ void main() {
     testWidgets('展示 HH:MM:SS 翻页数字', (tester) async {
       await pumpApp(tester);
       expect(find.byType(ClockTimeDisplay), findsOneWidget);
-      expect(find.text('10:00:00'), findsOneWidget);
+      expect(await readClock(tester), '10:00:00');
       expect(tester.takeException(), isNull);
     });
 
@@ -232,7 +245,7 @@ void main() {
       container.read(clockNotifierProvider.notifier)
           .startCountdown(const Duration(seconds: 3));
       await pumpFrames(tester, 2, const Duration(milliseconds: 50));
-      expect(find.textContaining('00:00:03'), findsOneWidget);
+      expect(await readClock(tester), '00:00:03');
 
       await tick(tester, const Duration(seconds: 3));
       await pumpFrames(tester, 6, const Duration(milliseconds: 80));
@@ -270,7 +283,7 @@ void main() {
       await pumpFrames(tester, 6, const Duration(milliseconds: 80));
       expect(find.byType(EggDisplay), findsNothing);
       expect(find.byType(CountdownDisplay), findsOneWidget);
-      expect(find.textContaining('00:00:00'), findsOneWidget);
+      expect(await readClock(tester), '00:00:00');
     });
 
     testWidgets('停止倒计时回到实时时钟，不留 00:00:00 死屏', (tester) async {
@@ -307,17 +320,17 @@ void main() {
       final clock = container.read(clockNotifierProvider.notifier);
       clock.startCountdown(const Duration(seconds: 20));
       await tick(tester, const Duration(seconds: 5));
-      expect(find.textContaining('00:00:15'), findsOneWidget);
+      expect(await readClock(tester), '00:00:15');
 
       await tapChip(tester, '暂停');
       fakeNow = fakeNow.add(const Duration(minutes: 3));
       await pumpFrames(tester, 3, const Duration(milliseconds: 50));
-      expect(find.textContaining('00:00:15'), findsOneWidget,
+      expect(await readClock(tester), '00:00:15',
           reason: '暂停期间不应消耗墙钟时间');
 
       await tapChip(tester, '继续');
       await tick(tester, const Duration(seconds: 2));
-      expect(find.textContaining('00:00:13'), findsOneWidget);
+      expect(await readClock(tester), '00:00:13');
       await stopTicker(tester);
     });
 
@@ -339,6 +352,39 @@ void main() {
       await stopTicker(tester);
     });
 
+    testWidgets('起表 6 秒后倒计时按钮一并隐去，点屏幕唤回后仍可操作', (tester) async {
+      await pumpApp(tester);
+      final clock = container.read(clockNotifierProvider.notifier);
+      clock.startCountdown(const Duration(seconds: 30));
+      await pumpFrames(tester, 2, const Duration(milliseconds: 50));
+      expect(find.text('暂停'), findsOneWidget);
+
+      await tester.pump(const Duration(seconds: 7));
+      await pumpFrames(tester, 4, const Duration(milliseconds: 100));
+
+      // 控件层只剩 _chrome 的两处（底部按钮 + 右上角入口），一起淡出
+      expect(find.byType(AnimatedOpacity), findsNWidgets(2));
+      for (final layer in tester.widgetList<AnimatedOpacity>(find.byType(AnimatedOpacity))) {
+        expect(layer.opacity, 0, reason: '沉浸式待机应只剩数字');
+      }
+      expect(find.text('暂停'), findsOneWidget, reason: '隐藏不等于移出树，移出就回不来了');
+      expect(find.byType(LinearProgressIndicator), findsOneWidget,
+          reason: '进度条是「还在计时」的唯一凭据，不该跟着藏');
+
+      // 隐藏态下点按钮位置不能真的生效：IgnorePointer 要同步挡住
+      await tester.tap(find.text('暂停'), warnIfMissed: false);
+      await pumpFrames(tester, 2, const Duration(milliseconds: 50));
+      expect(container.read(clockNotifierProvider).isRunning, isTrue,
+          reason: '按钮看不见时也不该被点到');
+
+      await tester.tapAt(const Offset(400, 150));
+      await pumpFrames(tester, 4, const Duration(milliseconds: 100));
+      await tapChip(tester, '暂停');
+      expect(container.read(clockNotifierProvider).isRunning, isFalse,
+          reason: '点屏幕唤回后要立刻能暂停');
+      await stopTicker(tester);
+    });
+
     testWidgets('自定义弹窗校验非法输入，合法值真的启动倒计时', (tester) async {
       await pumpApp(tester);
       await tapChip(tester, '自定义');
@@ -356,8 +402,60 @@ void main() {
       await tester.tap(find.text('开始'));
       await pumpFrames(tester, 8, const Duration(milliseconds: 60));
       expect(find.byType(CountdownDisplay), findsOneWidget);
-      expect(find.textContaining('00:02:00'), findsOneWidget);
+      expect(await readClock(tester), '00:02:00');
       await stopTicker(tester);
+    });
+
+    testWidgets('手机横屏 自定义弹窗完整可见，且不会一打开就弹键盘', (tester) async {
+      // Pixel7 横屏 2400x1080 物理 / density 2.625（逻辑 914x411）。
+      const screen = Size(2400 / 2.625, 1080 / 2.625);
+      tester.view.physicalSize = const Size(2400, 1080);
+      tester.view.devicePixelRatio = 2.625;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await pumpApp(tester);
+      await tapChip(tester, '自定义');
+      await pumpFrames(tester, 8, const Duration(milliseconds: 60));
+      expect(find.text('自定义倒计时'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+
+      // 输入框 + 4 个快捷键 + 开始按钮都得完整落在屏内
+      for (final target in [
+        find.byType(TextField),
+        find.text('60'),
+        find.text('开始'),
+      ]) {
+        final rect = tester.getRect(target);
+        expect(rect.right, lessThanOrEqualTo(screen.width), reason: '$target 横向溢出');
+        expect(rect.bottom, lessThanOrEqualTo(screen.height), reason: '$target 纵向溢出');
+      }
+
+      // 一打开就抢焦点会立刻弹键盘，把弹窗压瘪（真机踩过），所以初始不能自动唤起键盘
+      expect(tester.testTextInput.isVisible, isFalse);
+    });
+
+    testWidgets('键盘已弹出时自定义弹窗不塌成 0 高', (tester) async {
+      // AlertDialog 的外边距 = viewInsets + insetPadding，键盘吃掉 570 物理像素时
+      // 弹窗只剩 ~150 逻辑像素高；content 必须靠 scrollable + 收紧内边距活下来。
+      tester.view.physicalSize = const Size(2400, 1080);
+      tester.view.devicePixelRatio = 2.625;
+      tester.view.viewInsets = const FakeViewPadding(bottom: 570);
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetViewInsets);
+
+      await pumpApp(tester);
+      await tapChip(tester, '自定义');
+      await pumpFrames(tester, 8, const Duration(milliseconds: 60));
+      expect(find.text('自定义倒计时'), findsOneWidget);
+      expect(tester.takeException(), isNull,
+          reason: 'content 被压瘪会抛 RenderFlex overflow');
+
+      final fieldRect = tester.getRect(find.byType(TextField));
+      expect(fieldRect.height, greaterThan(0), reason: '输入框不能塌成 0 高');
+      expect(fieldRect.bottom, lessThanOrEqualTo(1080 / 2.625 - 570 / 2.625),
+          reason: '输入框必须落在键盘上方');
     });
   });
 
@@ -380,9 +478,58 @@ void main() {
       await tester.pageBack();
       await pumpFrames(tester, 10, const Duration(milliseconds: 60));
 
-      final digits = tester.widget<Text>(
-          find.textContaining(RegExp(r'\d{2}:\d{2}:\d{2}')).first);
-      expect(digits.style?.fontWeight, FontWeight.w900);
+      final digits = tester.widgetList<Text>(find.descendant(
+          of: find.byType(FlipCardWidget), matching: find.byType(Text)));
+      expect(digits, isNotEmpty);
+      for (final d in digits) {
+        expect(d.style?.fontWeight, FontWeight.w900,
+            reason: '每一格数字都要跟着换字重，${d.data} 却没有');
+      }
+    });
+
+    testWidgets('横屏手机（914×411 逻辑）设置页不溢出，预览与选项都留得住高度',
+        (tester) async {
+      // Pixel7 横屏：2400×1080 物理 / density 2.625 → 逻辑 914×411。
+      // 这里原先只按宽度分栏，结果 411 高的屏幕被横切成两栏，
+      // 预览吃掉固定 210 高，选项区只剩 145，一整屏都滚不出几行。
+      tester.view.physicalSize = const Size(2400, 1080);
+      tester.view.devicePixelRatio = 2.625;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      const screenSize = Size(2400 / 2.625, 1080 / 2.625);
+
+      await pumpApp(tester);
+      await openSettings(tester);
+      expect(find.byType(SettingsPage), findsOneWidget);
+
+      final previewHeight = tester.getSize(find.byType(StylePreview)).height;
+      final optionsHeight = tester.getSize(find.byType(ListView)).height;
+      expect(previewHeight, greaterThanOrEqualTo(100),
+          reason: '预览矮于此就看不清翻页了');
+      expect(optionsHeight, greaterThan(previewHeight),
+          reason: '选项区是主操作区，不该比预览还矮');
+      expect(optionsHeight, lessThanOrEqualTo(screenSize.height),
+          reason: '两栏加起来不能超出屏幕');
+
+      // 滚到底逐屏确认：任何一张选项卡片都不许横向越界
+      final options = find.byType(ListView);
+      final listRect = tester.getRect(options);
+      expect(listRect.top, greaterThanOrEqualTo(0), reason: '选项区顶部被顶出屏幕');
+      expect(listRect.bottom, lessThanOrEqualTo(screenSize.height),
+          reason: '选项区底部被顶出屏幕');
+      for (var step = 0; step < 14; step++) {
+        await tester.drag(options, const Offset(0, -220));
+        await pumpFrames(tester, 2, const Duration(milliseconds: 50));
+        final cards =
+            find.descendant(of: options, matching: find.byType(InkWell));
+        for (var i = 0; i < cards.evaluate().length; i++) {
+          final rect = tester.getRect(cards.at(i));
+          expect(rect.left, greaterThanOrEqualTo(0), reason: '卡片左侧溢出');
+          expect(rect.right, lessThanOrEqualTo(screenSize.width),
+              reason: '卡片右侧溢出');
+        }
+      }
+      expect(tester.takeException(), isNull, reason: '设置页横屏不允许溢出报错');
     });
 
     testWidgets('设置页预览用当前风格实时渲染', (tester) async {

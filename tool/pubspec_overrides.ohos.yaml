@@ -1,0 +1,15 @@
+# 鸿蒙构建专用的依赖覆盖（不提交为 pubspec_overrides.yaml，由 tool/build_hap.sh 复制）
+#
+# audioplayers 官方包没有鸿蒙实现；CPF-Flutter 适配版把 audioplayers_ohos 声明成
+# ohos 的 default_package，整包替换即可（锁 ref 保证可复现）。
+# 代价：这个 fork 的 Dart 源码用了 TargetPlatform.ohos，标准 Flutter SDK 编译不过，
+# 所以只能在这里按需注入，不能进 pubspec.yaml（否则 Android/iOS 与 CI 全挂）。
+dependency_overrides:
+  audioplayers:
+    git:
+      url: https://gitcode.com/CPF-Flutter/flutter_audioplayers
+      ref: 6.5.1-ohos-1.0.0
+      path: packages/audioplayers
+  # 上面的适配版顺手把 path_provider 也指到 git 源，和 hive_flutter 的 hosted 源冲突。
+  # 这里覆盖回 hosted，鸿蒙实现仍由 path_provider_ohos 提供。
+  path_provider: ^2.1.0

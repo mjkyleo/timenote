@@ -1,0 +1,16 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "时笺翻页时钟"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "时笺"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "时笺"
+    }
+  ]
+}

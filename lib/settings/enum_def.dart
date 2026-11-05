@@ -4,13 +4,16 @@ library;
 /// 底色模式：黑 / 白
 enum ThemeBase { light, dark }
 
-/// 翻页动画样式（5 种）
+/// 翻页动画样式（8 种，其中 [FlipAnimStyle.autoMix] 会在其余 7 种之间轮换）
 enum FlipAnimStyle {
-  flipCard, // 经典机场翻牌
+  flipCard, // 经典机场翻牌（真·split-flap，绕中缝铰链）
   pageCurl, // 书页卷曲
   slideFlip, // 滑动翻页
   segmentFlip, // 分段碎裂
   fadeFlip, // 渐变溶解
+  tickerRoll, // 滚筒走字
+  dropSettle, // 落体回弹
+  autoMix, // 混合轮换（每次翻页换一种）
 }
 
 /// 计时画面数字样式（10 种）

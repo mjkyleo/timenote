@@ -34,22 +34,6 @@ jobs:
           channel: stable
           cache: true
 
-      - name: 恢复 gradle wrapper jar（二进制，未纳入版本库）
-        run: |
-          curl -sL -o android/gradle/wrapper/gradle-wrapper.jar \
-            https://raw.githubusercontent.com/gradle/gradle/v8.7.0/gradle/wrapper/gradle-wrapper.jar
-          ls -la android/gradle/wrapper/
-
-      - name: 生成占位应用图标（二进制 PNG，云端重建）
-        run: |
-          cd android/app/src/main/res
-          for spec in mdpi 48 hdpi 72 xhdpi 96 xxhdpi 144 xxxhdpi 192; do
-            dir=$(echo $spec | cut -d' ' -f1)
-            size=$(echo $spec | cut -d' ' -f2)
-            convert -size ${size}x${size} xc:'#1a1a1a' "mipmap-$dir/ic_launcher.png"
-            echo "icon $dir $size done"
-          done
-
       - name: 拉取依赖
         run: flutter pub get
 

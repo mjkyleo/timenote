@@ -8,7 +8,7 @@ import '../theme/ui_style.dart';
 import 'enum_def.dart';
 import 'style_picker.dart';
 
-/// 设置页：底色 / 11 套界面风格 / 10 种数字样式 / 5 种翻页动画 / 速度 / 开关
+/// 设置页：底色 / 11 套界面风格 / 10 种数字样式 / 8 种翻页动画 / 速度 / 开关
 ///
 /// 左侧（窄屏时上方）是实时预览：改任何一项都能立刻看到翻页效果，
 /// 不必退回主屏去验证。
@@ -42,11 +42,17 @@ class SettingsPage extends ConsumerWidget {
         solid: true,
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final wide = constraints.maxWidth >= 760;
+            // 只看宽度会把横屏手机当平板：812×319 下左栏 2:3 分走后预览占掉
+            // 整屏高度、选项只剩 447 宽，所以高度不够就退回上下布局
+            final wide = constraints.maxWidth >= 760 &&
+                constraints.maxHeight >= 400;
             if (!wide) {
+              // 预览按屏高比例给，横屏手机上不再固定吃掉 210 让选项只剩一条缝
+              final previewHeight =
+                  (constraints.maxHeight * 0.42).clamp(140.0, 240.0);
               return Column(
                 children: [
-                  SizedBox(height: 210, child: preview),
+                  SizedBox(height: previewHeight, child: preview),
                   Expanded(child: options),
                 ],
               );
@@ -54,8 +60,9 @@ class SettingsPage extends ConsumerWidget {
             return Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Expanded(flex: 2, child: preview),
-                Expanded(flex: 3, child: options),
+                // 预览是配角：屏宽的一半在手机上会把选项挤成一条窄柱
+                Expanded(flex: constraints.maxWidth >= 1000 ? 2 : 1, child: preview),
+                Expanded(flex: constraints.maxWidth >= 1000 ? 3 : 2, child: options),
               ],
             );
           },
@@ -75,67 +82,57 @@ class SettingsPage extends ConsumerWidget {
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
       children: [
         _sectionTitle(context, tokens, '底色模式'),
-        Wrap(
-          children: [
-            for (final base in ThemeBase.values)
-              buildStyleItem(
-                context,
-                base == ThemeBase.light ? '亮色（白）' : '暗色（黑）',
-                appState.themeBase == base,
-                () => update(appState.copyWith(themeBase: base)),
-              ),
-          ],
-        ),
+        _chips([
+          for (final base in ThemeBase.values)
+            buildStyleItem(
+              context,
+              base == ThemeBase.light ? '亮色（白）' : '暗色（黑）',
+              appState.themeBase == base,
+              () => update(appState.copyWith(themeBase: base)),
+            ),
+        ]),
         _sectionTitle(context, tokens, '界面风格（11 套整屏令牌）'),
-        Wrap(
-          children: [
-            for (final u in UiStyle.values)
-              buildStyleItem(
-                context,
-                uiStyleName(u),
-                appState.uiStyle == u,
-                () => update(appState.copyWith(uiStyle: u)),
-                swatch: uiTokensFor(u, appState.themeBase == ThemeBase.dark),
-              ),
-          ],
-        ),
+        _chips([
+          for (final u in UiStyle.values)
+            buildStyleItem(
+              context,
+              uiStyleName(u),
+              appState.uiStyle == u,
+              () => update(appState.copyWith(uiStyle: u)),
+              swatch: uiTokensFor(u, appState.themeBase == ThemeBase.dark),
+            ),
+        ]),
         _sectionTitle(context, tokens, '计时画面风格（10 种数字样式）'),
-        Wrap(
-          children: [
-            for (final v in ClockVisualStyle.values)
-              buildStyleItem(
-                context,
-                visualStyleName(v),
-                appState.clockVisualStyle == v,
-                () => update(appState.copyWith(clockVisualStyle: v)),
-                labelStyle: labelStyleFor(v, labelColor),
-              ),
-          ],
-        ),
-        _sectionTitle(context, tokens, '翻页动画样式（5 种）'),
-        Wrap(
-          children: [
-            for (final v in FlipAnimStyle.values)
-              buildStyleItem(
-                context,
-                flipAnimName(v),
-                appState.flipAnimStyle == v,
-                () => update(appState.copyWith(flipAnimStyle: v)),
-              ),
-          ],
-        ),
+        _chips([
+          for (final v in ClockVisualStyle.values)
+            buildStyleItem(
+              context,
+              visualStyleName(v),
+              appState.clockVisualStyle == v,
+              () => update(appState.copyWith(clockVisualStyle: v)),
+              labelStyle: labelStyleFor(v, labelColor),
+            ),
+        ]),
+        _sectionTitle(context, tokens, '翻页动画样式（${FlipAnimStyle.values.length} 种）'),
+        _chips([
+          for (final v in FlipAnimStyle.values)
+            buildStyleItem(
+              context,
+              flipAnimName(v),
+              appState.flipAnimStyle == v,
+              () => update(appState.copyWith(flipAnimStyle: v)),
+            ),
+        ]),
         _sectionTitle(context, tokens, '翻页动画速度'),
-        Wrap(
-          children: [
-            for (final v in AnimSpeed.values)
-              buildStyleItem(
-                context,
-                speedName(v),
-                appState.animSpeed == v,
-                () => update(appState.copyWith(animSpeed: v)),
-              ),
-          ],
-        ),
+        _chips([
+          for (final v in AnimSpeed.values)
+            buildStyleItem(
+              context,
+              speedName(v),
+              appState.animSpeed == v,
+              () => update(appState.copyWith(animSpeed: v)),
+            ),
+        ]),
         const SizedBox(height: 12),
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
@@ -179,6 +176,15 @@ class SettingsPage extends ConsumerWidget {
       Padding(
         padding: const EdgeInsets.only(top: 18, bottom: 6),
         child: Text(uiLabelText(tokens, t), style: uiLabelStyle(context, tokens)),
+      );
+
+  /// 一组选项芯片：芯片自带 4 像素外边距，这里补齐到横竖都是 10 的统一间隙，
+  /// 否则 11 套界面风格会散成高低不齐的 4-5 行
+  Widget _chips(List<Widget> items) => Wrap(
+        spacing: 2,
+        runSpacing: 2,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: items,
       );
 }
 

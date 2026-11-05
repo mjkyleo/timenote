@@ -13,6 +13,10 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   // 平板横屏优先
   await SystemChrome.setPreferredOrientations(AppConstants.landscapeOrientations);
+  // 待机翻页时钟：状态栏与导航条会毁掉整屏观感（模拟器实测可见 3:05 / LTE / 电量）。
+  // immersiveSticky = 边缘滑动临时唤回后自动再隐藏；鸿蒙侧 flutter_ohos 的
+  // PlatformPlugin.setSystemChromeEnabledSystemUIMode 显式实现了这个模式，不是空调用。
+  await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
   try {
     await StorageService.init();
   } catch (error) {
