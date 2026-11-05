@@ -93,14 +93,15 @@ class _UiSwatch extends StatelessWidget {
           width: 20,
           height: 12,
           decoration: BoxDecoration(
-            color: tokens.plateFill ??
-                tokens.fg.withValues(alpha: 0.12),
+            color: tokens.plateFill ?? tokens.fg.withValues(alpha: 0.12),
             borderRadius: BorderRadius.circular(tokens.plateRadius ?? 2),
             border: tokens.plateStroke == null
                 ? null
                 : Border.all(
                     color: tokens.plateStroke!,
-                    width: tokens.plateStrokeWidth > 2 ? 1.5 : tokens.plateStrokeWidth),
+                    width: tokens.plateStrokeWidth > 2
+                        ? 1.5
+                        : tokens.plateStrokeWidth),
             // 阴影按 1/4 缩放，否则 16px 模糊在一枚小色块上会糊成一团
             boxShadow: [
               for (final s in tokens.plateShadow.take(2))
@@ -207,6 +208,53 @@ String flipAnimName(FlipAnimStyle s) {
       return '混合轮换';
   }
 }
+
+/// 24 种翻页动画 + 混合轮换，按实验室原样分成可扫读的小类。
+///
+/// 设置页原先把 25 枚芯片摊成一面墙，找「滚筒走字」得逐行读——这里按类分组，
+/// 顺序就是 [FlipAnimStyle] 的声明顺序。新增动画必须在这里登记，
+/// 否则 `test/flip_rendering_test.dart` 的分类完整性用例会红（漏登记 = 设置页里没有这一项）。
+const Map<String, List<FlipAnimStyle>> flipAnimFamilies = {
+  '翻折': [
+    FlipAnimStyle.flipCard,
+    FlipAnimStyle.pageCurl,
+    FlipAnimStyle.diagFold,
+    FlipAnimStyle.bounceFlip,
+    FlipAnimStyle.cardFlip,
+  ],
+  '位移': [
+    FlipAnimStyle.tickerRoll,
+    FlipAnimStyle.slideAcross,
+    FlipAnimStyle.cascade,
+  ],
+  '遮罩': [
+    FlipAnimStyle.blind,
+    FlipAnimStyle.iris,
+    FlipAnimStyle.polygon,
+  ],
+  '形变': [
+    FlipAnimStyle.crossfade,
+    FlipAnimStyle.blurFocus,
+    FlipAnimStyle.jelly,
+  ],
+  '碎片': [
+    FlipAnimStyle.pixelShuffle,
+    FlipAnimStyle.particleScatter,
+    FlipAnimStyle.shardBurst,
+  ],
+  '光学': [
+    FlipAnimStyle.fluidDissolve,
+    FlipAnimStyle.liquidGlass,
+    FlipAnimStyle.crtScan,
+  ],
+  '基础': [
+    FlipAnimStyle.slideFlip,
+    FlipAnimStyle.segmentFlip,
+    FlipAnimStyle.fadeFlip,
+    FlipAnimStyle.dropSettle,
+  ],
+  '混合': [FlipAnimStyle.autoMix],
+};
 
 String speedName(AnimSpeed s) {
   switch (s) {

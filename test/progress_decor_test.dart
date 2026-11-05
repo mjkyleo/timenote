@@ -401,6 +401,10 @@ void main() {
       // 选项在列表末尾，直接 find 还没被 ListView 建出来，要边滚边找
       await tester.scrollUntilVisible(find.text('沙漏'), 120);
       expect(find.textContaining('底层进度组件'), findsOneWidget);
+      // 分区卡改了行高，边滚边找只会保证「建出来」，芯片可能还压在视口外，
+      // 不拉进可视区就是 tap 落空 + 设置没变
+      await tester.ensureVisible(find.text('沙漏'));
+      await tester.pump(const Duration(milliseconds: 60));
 
       await tester.tap(find.text('沙漏'));
       for (var i = 0; i < 4; i++) {

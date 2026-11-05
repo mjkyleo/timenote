@@ -8,8 +8,8 @@ import '../theme/ui_style.dart';
 import 'enum_def.dart';
 import 'style_picker.dart';
 
-/// 设置页：底色 / 11 套界面风格 / 10 种数字样式 / 24 种翻页动画 + 混合轮换 /
-/// 速度 / 8 种底层进度组件 / 数字外框 / 倒计时结束三档 / 常亮与提示音
+/// 设置页：七张分区卡（外观 / 数字样式 / 翻页动画 / 进度显示 / 倒计时结束 /
+/// 屏幕与声音 / 关于），卡内再按小标签分组
 ///
 /// 左侧（窄屏时上方）是实时预览：改任何一项都能立刻看到翻页效果，
 /// 不必退回主屏去验证。
@@ -21,11 +21,11 @@ class SettingsPage extends ConsumerWidget {
     final appState = ref.watch(appSettingsNotifierProvider);
     final notifier = ref.read(appSettingsNotifierProvider.notifier);
     final isDark = appState.themeBase == ThemeBase.dark;
-    final tokens =
-        UiScope.maybeOf(context) ?? UiTokens.classic(isDark);
+    final tokens = UiScope.maybeOf(context) ?? UiTokens.classic(isDark);
     final labelColor = tokens.fg;
 
-    final options = _options(context, appState, labelColor, tokens, notifier.update);
+    final options =
+        _options(context, appState, labelColor, tokens, notifier.update);
     final preview = Padding(
       padding: const EdgeInsets.all(16),
       child: StylePreview(state: appState),
@@ -45,8 +45,8 @@ class SettingsPage extends ConsumerWidget {
           builder: (context, constraints) {
             // 只看宽度会把横屏手机当平板：812×319 下左栏 2:3 分走后预览占掉
             // 整屏高度、选项只剩 447 宽，所以高度不够就退回上下布局
-            final wide = constraints.maxWidth >= 760 &&
-                constraints.maxHeight >= 400;
+            final wide =
+                constraints.maxWidth >= 760 && constraints.maxHeight >= 400;
             if (!wide) {
               // 预览按屏高比例给，横屏手机上不再固定吃掉 210 让选项只剩一条缝
               final previewHeight =
@@ -62,8 +62,10 @@ class SettingsPage extends ConsumerWidget {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 // 预览是配角：屏宽的一半在手机上会把选项挤成一条窄柱
-                Expanded(flex: constraints.maxWidth >= 1000 ? 2 : 1, child: preview),
-                Expanded(flex: constraints.maxWidth >= 1000 ? 3 : 2, child: options),
+                Expanded(
+                    flex: constraints.maxWidth >= 1000 ? 2 : 1, child: preview),
+                Expanded(
+                    flex: constraints.maxWidth >= 1000 ? 3 : 2, child: options),
               ],
             );
           },
@@ -72,6 +74,11 @@ class SettingsPage extends ConsumerWidget {
     );
   }
 
+  /// 选项区：七张分区卡，卡内再按「小标签 + 芯片墙」分组。
+  ///
+  /// 之前是九段标题直接摊在一条列表里，25 枚动画芯片糊成一面墙，找一个动画要逐行读；
+  /// 现在动画按实验室原样分八小类，外框/结束/进度各自归到「外观 / 数字样式 / 翻页动画 /
+  /// 进度显示 / 倒计时结束 / 屏幕与声音」里，一屏一类。
   Widget _options(
     BuildContext context,
     AppSettingsState appState,
@@ -79,143 +86,185 @@ class SettingsPage extends ConsumerWidget {
     UiTokens tokens,
     Future<void> Function(AppSettingsState) update,
   ) {
+    Widget item(String label, bool selected, VoidCallback onTap,
+            {TextStyle? labelStyle, UiTokens? swatch}) =>
+        buildStyleItem(context, label, selected, onTap,
+            labelStyle: labelStyle, swatch: swatch);
+
     return ListView(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       children: [
-        _sectionTitle(context, tokens, '底色模式'),
-        _chips([
-          for (final base in ThemeBase.values)
-            buildStyleItem(
-              context,
-              base == ThemeBase.light ? '亮色（白）' : '暗色（黑）',
-              appState.themeBase == base,
-              () => update(appState.copyWith(themeBase: base)),
-            ),
+        _card(context, tokens, '外观', [
+          _group(tokens, '底色', [
+            for (final base in ThemeBase.values)
+              item(
+                  base == ThemeBase.light ? '亮色（白）' : '暗色（黑）',
+                  appState.themeBase == base,
+                  () => update(appState.copyWith(themeBase: base))),
+          ]),
+          _group(tokens, '界面风格（${UiStyle.values.length} 套整屏令牌）', [
+            for (final u in UiStyle.values)
+              item(uiStyleName(u), appState.uiStyle == u,
+                  () => update(appState.copyWith(uiStyle: u)),
+                  swatch: uiTokensFor(u, appState.themeBase == ThemeBase.dark)),
+          ]),
+          _group(tokens, '数字外框（底板描边）', [
+            for (final f in PlateFrame.values)
+              item(plateFrameName(f), appState.plateFrame == f,
+                  () => update(appState.copyWith(plateFrame: f))),
+          ]),
+          _hint(tokens, '外框只管描边这一层，底板的填充与光影仍跟着界面风格走。'),
         ]),
-        _sectionTitle(context, tokens, '界面风格（11 套整屏令牌）'),
-        _chips([
-          for (final u in UiStyle.values)
-            buildStyleItem(
-              context,
-              uiStyleName(u),
-              appState.uiStyle == u,
-              () => update(appState.copyWith(uiStyle: u)),
-              swatch: uiTokensFor(u, appState.themeBase == ThemeBase.dark),
-            ),
+        _card(context, tokens, '数字样式', [
+          _group(tokens, '计时画面（${ClockVisualStyle.values.length} 种）', [
+            for (final v in ClockVisualStyle.values)
+              item(visualStyleName(v), appState.clockVisualStyle == v,
+                  () => update(appState.copyWith(clockVisualStyle: v)),
+                  labelStyle: labelStyleFor(v, labelColor)),
+          ]),
+          _group(tokens, '动画速度', [
+            for (final v in AnimSpeed.values)
+              item(speedName(v), appState.animSpeed == v,
+                  () => update(appState.copyWith(animSpeed: v))),
+          ]),
         ]),
-        _sectionTitle(context, tokens, '计时画面风格（10 种数字样式）'),
-        _chips([
-          for (final v in ClockVisualStyle.values)
-            buildStyleItem(
-              context,
-              visualStyleName(v),
-              appState.clockVisualStyle == v,
-              () => update(appState.copyWith(clockVisualStyle: v)),
-              labelStyle: labelStyleFor(v, labelColor),
-            ),
+        _card(context, tokens,
+            '翻页动画（${FlipAnimStyle.values.length - 1} 种 + 混合轮换）', [
+          for (final entry in flipAnimFamilies.entries)
+            _group(tokens, entry.key, [
+              for (final v in entry.value)
+                item(flipAnimName(v), appState.flipAnimStyle == v,
+                    () => update(appState.copyWith(flipAnimStyle: v))),
+            ]),
         ]),
-        _sectionTitle(context, tokens, '翻页动画样式（${FlipAnimStyle.values.length} 种）'),
-        _chips([
-          for (final v in FlipAnimStyle.values)
-            buildStyleItem(
-              context,
-              flipAnimName(v),
-              appState.flipAnimStyle == v,
-              () => update(appState.copyWith(flipAnimStyle: v)),
-            ),
+        _card(context, tokens, '进度显示', [
+          _switch(
+              tokens,
+              '底部细进度条',
+              '倒计时时数字下方那一根；关掉画面只剩数字',
+              appState.showProgressBar,
+              (val) => update(appState.copyWith(showProgressBar: val))),
+          _group(
+              tokens, '底层进度组件（数字下方/背景，${ProgressDecor.values.length - 1} 种）', [
+            for (final d in ProgressDecor.values)
+              item(progressDecorName(d), appState.progressDecor == d,
+                  () => update(appState.copyWith(progressDecor: d))),
+          ]),
+          _hint(
+              tokens,
+              '选其中一种会顶掉那根细进度条（同一个信息不画两遍）；'
+              '「日出日落」是背景层，细条照旧留着当读数。'),
         ]),
-        _sectionTitle(context, tokens, '翻页动画速度'),
-        _chips([
-          for (final v in AnimSpeed.values)
-            buildStyleItem(
-              context,
-              speedName(v),
-              appState.animSpeed == v,
-              () => update(appState.copyWith(animSpeed: v)),
-            ),
+        _card(context, tokens, '倒计时结束', [
+          _group(tokens, '归零之后', [
+            for (final b in FinishBehavior.values)
+              item(finishBehaviorName(b), appState.onFinish == b,
+                  () => update(appState.copyWith(onFinish: b))),
+          ]),
+          _hint(
+              tokens,
+              '自动重开用的是上一次选的那个时长；彩蛋展示 ${AppConstants.eggStaySeconds} 秒后切回实时时钟，'
+              '文案完全随机。'),
         ]),
-        _sectionTitle(context, tokens, '底层进度组件（数字下方/背景，${ProgressDecor.values.length - 1} 种）'),
-        _chips([
-          for (final d in ProgressDecor.values)
-            buildStyleItem(
-              context,
-              progressDecorName(d),
-              appState.progressDecor == d,
-              () => update(appState.copyWith(progressDecor: d)),
-            ),
+        _card(context, tokens, '屏幕与声音', [
+          _switch(tokens, '屏幕常亮', '立即生效，防止平板息屏', appState.keepScreenOn,
+              (val) => update(appState.copyWith(keepScreenOn: val))),
+          _switch(tokens, '提示音', '倒计时结束时播放，与结束行为互不影响', appState.soundEnable,
+              (val) => update(appState.copyWith(soundEnable: val))),
         ]),
-        _sectionTitle(context, tokens, '数字外框（底板描边）'),
-        _chips([
-          for (final f in PlateFrame.values)
-            buildStyleItem(
-              context,
-              plateFrameName(f),
-              appState.plateFrame == f,
-              () => update(appState.copyWith(plateFrame: f)),
-            ),
+        _card(context, tokens, '关于', [
+          const Text(
+            '时笺 TimeNote · 平板离线翻页时钟\n'
+            '专注计时 + 待办 + 彩蛋文案\n'
+            '纯离线运行，无登录，无广告 · 开源协议 MIT',
+            style: TextStyle(fontSize: 13, height: 1.7),
+          ),
         ]),
-        _sectionTitle(context, tokens, '倒计时结束'),
-        _chips([
-          for (final b in FinishBehavior.values)
-            buildStyleItem(
-              context,
-              finishBehaviorName(b),
-              appState.onFinish == b,
-              () => update(appState.copyWith(onFinish: b)),
-            ),
-        ]),
-        _hint(tokens,
-            '自动重开用的是上一次选的那个时长；彩蛋展示 ${AppConstants.eggStaySeconds} 秒后切回实时时钟。'),
-        const SizedBox(height: 12),
-        SwitchListTile(
-          contentPadding: EdgeInsets.zero,
-          title: const Text('屏幕常亮'),
-          subtitle: const Text('立即生效，防止平板息屏'),
-          value: appState.keepScreenOn,
-          onChanged: (val) =>
-              update(appState.copyWith(keepScreenOn: val)),
-        ),
-        SwitchListTile(
-          contentPadding: EdgeInsets.zero,
-          title: const Text('提示音'),
-          subtitle: const Text('倒计时结束时播放，与结束行为互不影响'),
-          value: appState.soundEnable,
-          onChanged: (val) => update(appState.copyWith(soundEnable: val)),
-        ),
-        const SizedBox(height: 24),
-        const Text('关于时笺 TimeNote',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 8),
-        const Text(
-          '平板离线翻页时钟 · 专注计时 + 待办 + 彩蛋\n'
-          '纯离线运行，无登录，无广告\n'
-          '开源协议：MIT',
-          style: TextStyle(fontSize: 13, height: 1.6),
-        ),
         const SizedBox(height: 24),
       ],
     );
   }
 
-  Widget _sectionTitle(BuildContext context, UiTokens tokens, String t) =>
+  /// 一张分区卡：标题 + 卡内若干组。底色用风格给的 surface，没给就用一层淡前景。
+  ///
+  /// 用 [Material] 而不是 `Container`+`BoxDecoration`：卡里有 `SwitchListTile`，
+  /// 它在最近的 Material 祖先上画背景与水波纹，卡在中间垫一层带色的 DecoratedBox
+  /// 会把开关的点击反馈整个吃掉（Flutter 自己会断言报出来）。
+  Widget _card(BuildContext context, UiTokens tokens, String title,
+          List<Widget> body) =>
       Padding(
-        padding: const EdgeInsets.only(top: 18, bottom: 6),
-        child: Text(uiLabelText(tokens, t), style: uiLabelStyle(context, tokens)),
+        padding: const EdgeInsets.only(bottom: 14),
+        child: Material(
+          color: tokens.surface ?? tokens.fg.withValues(alpha: 0.03),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+            side: BorderSide(
+                color: tokens.muted.withValues(alpha: 0.32),
+                width: tokens.chipStrokeWidth),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    // 一小段强调色竖条当类目锚点，比纯文字标题更好扫
+                    Container(
+                      width: 3,
+                      height: 14,
+                      color: tokens.accentSelection ? tokens.accent : tokens.fg,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(uiLabelText(tokens, title),
+                        style: uiLabelStyle(context, tokens)),
+                  ],
+                ),
+                for (final w in body) w,
+              ],
+            ),
+          ),
+        ),
       );
 
-  /// 一组选项芯片：芯片自带 4 像素外边距，这里补齐到横竖都是 10 的统一间隙，
-  /// 否则 11 套界面风格会散成高低不齐的 4-5 行
-  Widget _chips(List<Widget> items) => Wrap(
-        spacing: 2,
-        runSpacing: 2,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        children: items,
+  /// 卡内的一组：小标签在上，芯片墙在下
+  Widget _group(UiTokens tokens, String label, List<Widget> chips) => Padding(
+        padding: const EdgeInsets.only(top: 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label,
+                style: TextStyle(
+                    fontSize: 11, letterSpacing: 1, color: tokens.muted)),
+            // 芯片自带 4 像素外边距，这里补齐到横竖都是 10 的统一间隙
+            Wrap(
+                spacing: 2,
+                runSpacing: 2,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: chips),
+          ],
+        ),
+      );
+
+  /// 开关行：与芯片同色系，标题/副标题都走令牌前景，暗风格下不会糊成灰底黑字
+  Widget _switch(UiTokens tokens, String title, String subtitle, bool value,
+          void Function(bool) onChanged) =>
+      Padding(
+        padding: const EdgeInsets.only(top: 6),
+        child: SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: Text(title, style: TextStyle(color: tokens.fg)),
+          subtitle: Text(subtitle,
+              style: TextStyle(fontSize: 11, height: 1.4, color: tokens.muted)),
+          value: value,
+          onChanged: (val) => onChanged(val),
+        ),
       );
 
   /// 芯片组下面那行小字：三档结束行为这类「选完当场看不出差别」的组，
   /// 光靠芯片名说不清约定
   Widget _hint(UiTokens tokens, String text) => Padding(
-        padding: const EdgeInsets.only(top: 6, left: 4),
+        padding: const EdgeInsets.only(top: 8, left: 4),
         child: Text(text,
             style: TextStyle(fontSize: 11, height: 1.4, color: tokens.muted)),
       );

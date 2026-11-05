@@ -11,8 +11,10 @@ import 'package:timenote/egg/egg_display.dart';
 import 'package:timenote/flip_clock/clock_controller.dart';
 import 'package:timenote/flip_clock/flip_card_widget.dart';
 import 'package:timenote/main.dart';
+import 'package:timenote/progress_decor/progress_decor.dart';
 import 'package:timenote/settings/enum_def.dart';
 import 'package:timenote/settings/settings_page.dart';
+import 'package:timenote/settings/style_picker.dart';
 
 import 'support/fake_storage.dart';
 import 'support/fake_wakelock.dart';
@@ -250,6 +252,8 @@ void main() {
       await tick(tester, const Duration(seconds: 3));
       await pumpFrames(tester, 6, const Duration(milliseconds: 80));
       expect(find.byType(EggDisplay), findsOneWidget);
+      expect(find.text('重来'), findsOneWidget,
+          reason: '彩蛋只换掉中间那块，底下芯片条还在：归零态不给死的「继续」');
 
       await tester.tapAt(const Offset(400, 300));
       await pumpFrames(tester, 6, const Duration(milliseconds: 80));
@@ -292,6 +296,32 @@ void main() {
       expect(find.byType(CountdownDisplay), findsOneWidget,
           reason: '停留档不该在几秒后自己回实时时钟');
       expect(await readClock(tester), '00:00:00');
+    });
+
+    testWidgets('归零后那颗芯片是「重来」，点它用上一轮的时长原地再起', (tester) async {
+      await pumpApp(tester);
+      appSettings()
+          .update(settings().copyWith(onFinish: FinishBehavior.stayZero));
+      await pumpFrames(tester, 2, const Duration(milliseconds: 50));
+
+      container.read(clockNotifierProvider.notifier)
+          .startCountdown(const Duration(seconds: 2));
+      await tick(tester, const Duration(seconds: 2));
+      await pumpFrames(tester, 6, const Duration(milliseconds: 80));
+      expect(await readClock(tester), '00:00:00');
+
+      // resumeCountdown 见 remainTime<=0 直接 return，那颗「继续」是点不动的死芯片
+      expect(find.text('继续'), findsNothing,
+          reason: '归零态还挂着「继续」等于给用户一个按了没反应的按钮');
+      expect(find.text('重来'), findsOneWidget);
+
+      await tapChip(tester, '重来');
+      final state = container.read(clockNotifierProvider);
+      expect(state.total, const Duration(seconds: 2),
+          reason: '重来的约定是复用上一轮选的时长，不是回到某个预设');
+      expect(state.isRunning, isTrue);
+      expect(await readClock(tester), '00:00:02');
+      await stopTicker(tester);
     });
 
     testWidgets('选「自动重新开始」时用上一轮的时长直接重开', (tester) async {
@@ -513,6 +543,88 @@ void main() {
     });
   });
 
+  /// 底部那根细进度条：默认开着，能用设置关掉，且和「底层进度组件」互不重复。
+  group('底部细进度条开关', () {
+    testWidgets('默认在场，关掉后消失并落盘', (tester) async {
+      await pumpApp(tester);
+      expect(settings().showProgressBar, isTrue,
+          reason: '老版本一直有这根条，加开关后默认档必须还是开');
+
+      container.read(clockNotifierProvider.notifier)
+          .startCountdown(const Duration(seconds: 20));
+      await pumpFrames(tester, 2, const Duration(milliseconds: 50));
+      expect(find.byType(LinearProgressIndicator), findsOneWidget);
+
+      appSettings().update(settings().copyWith(showProgressBar: false));
+      await pumpFrames(tester, 3, const Duration(milliseconds: 50));
+      expect(find.byType(LinearProgressIndicator), findsNothing);
+      expect(StorageService.getSetting('showProgressBar', true), isFalse);
+      await stopTicker(tester);
+    });
+
+    testWidgets('实时时钟下开或关都不画条：进度条只属于倒计时', (tester) async {
+      await pumpApp(tester);
+      expect(find.byType(LinearProgressIndicator), findsNothing,
+          reason: '进度条是「还剩多久」的语义，实时模式下没有剩余时间可画');
+
+      for (final on in [false, true]) {
+        appSettings().update(settings().copyWith(showProgressBar: on));
+        await pumpFrames(tester, 3, const Duration(milliseconds: 50));
+        expect(find.byType(LinearProgressIndicator), findsNothing,
+            reason: '开关只该影响倒计时画面，别把条塞进实时时钟');
+      }
+      expect(find.byType(ClockTimeDisplay), findsOneWidget);
+    });
+
+    testWidgets('选了沙漏时不画两遍：细条让位给进度组件', (tester) async {
+      appSettings().update(settings()
+          .copyWith(progressDecor: ProgressDecor.hourglass));
+      await pumpApp(tester);
+      container.read(clockNotifierProvider.notifier)
+          .startCountdown(const Duration(seconds: 20));
+      await pumpFrames(tester, 2, const Duration(milliseconds: 50));
+      expect(find.byType(ProgressDecorView), findsOneWidget);
+      expect(find.byType(LinearProgressIndicator), findsNothing,
+          reason: '同一个「还剩多久」在数字下方画两遍');
+      await stopTicker(tester);
+    });
+
+    testWidgets('日出日落只当背景，细条照旧；这时用户的关必须算数', (tester) async {
+      appSettings()
+          .update(settings().copyWith(progressDecor: ProgressDecor.sky));
+      await pumpApp(tester);
+      container.read(clockNotifierProvider.notifier)
+          .startCountdown(const Duration(seconds: 20));
+      await pumpFrames(tester, 2, const Duration(milliseconds: 50));
+      expect(find.byType(ProgressDecorView), findsOneWidget);
+      expect(find.byType(LinearProgressIndicator), findsOneWidget,
+          reason: 'sky 是垫在整屏底下的环境层，不占数字下方，细条得留着当读数');
+
+      appSettings().update(settings().copyWith(showProgressBar: false));
+      await pumpFrames(tester, 3, const Duration(milliseconds: 50));
+      expect(find.byType(LinearProgressIndicator), findsNothing);
+      await stopTicker(tester);
+    });
+
+    testWidgets('关掉的档写进设置库，重启后读回还是不画条', (tester) async {
+      await pumpApp(tester);
+      appSettings().update(settings().copyWith(showProgressBar: false));
+
+      container.dispose();
+      container = ProviderContainer(
+        overrides: [clockSourceProvider.overrideWithValue(() => fakeNow)],
+      );
+      await pumpApp(tester);
+      expect(settings().showProgressBar, isFalse);
+
+      container.read(clockNotifierProvider.notifier)
+          .startCountdown(const Duration(seconds: 20));
+      await pumpFrames(tester, 2, const Duration(milliseconds: 50));
+      expect(find.byType(LinearProgressIndicator), findsNothing);
+      await stopTicker(tester);
+    });
+  });
+
   group('设置', () {
     testWidgets('切换数字样式后主屏字重变化并落盘', (tester) async {
       await pumpApp(tester);
@@ -524,6 +636,7 @@ void main() {
         find.byType(ListView),
         const Offset(0, -120),
       );
+      await tester.ensureVisible(find.text('粗黑力量体'));
       await pumpFrames(tester, 4, const Duration(milliseconds: 50));
       await tester.tap(find.text('粗黑力量体'));
       await pumpFrames(tester, 6, const Duration(milliseconds: 50));
@@ -599,20 +712,15 @@ void main() {
       );
     });
 
-    testWidgets('滚到最下面能选「结束行为」与「数字外框」，选完即落盘', (tester) async {
+    testWidgets('分区重排后两块都滚得到：外框在「外观」卡里靠前，结束行为在后面',
+        (tester) async {
       await pumpApp(tester);
       await openSettings(tester);
       final options = find.byType(ListView);
 
       await tester.dragUntilVisible(
-          find.text('自动重新开始'), options, const Offset(0, -120));
-      await pumpFrames(tester, 4, const Duration(milliseconds: 50));
-      await tester.tap(find.text('自动重新开始'));
-      await pumpFrames(tester, 4, const Duration(milliseconds: 50));
-      expect(StorageService.getSetting('onFinish', ''), 'autoRestart');
-
-      await tester.dragUntilVisible(
           find.text('粗外框'), options, const Offset(0, -120));
+      await tester.ensureVisible(find.text('粗外框'));
       await pumpFrames(tester, 4, const Duration(milliseconds: 50));
       await tester.tap(find.text('粗外框'));
       await pumpFrames(tester, 4, const Duration(milliseconds: 50));
@@ -625,6 +733,77 @@ void main() {
       expect(deco.border?.top.width, 3,
           reason: '预览没跟着档位走，说明设置值没穿过 FlipCardWidget');
       expect(deco.border?.top.color, isNotNull);
+
+      await tester.dragUntilVisible(
+          find.text('自动重新开始'), options, const Offset(0, -120));
+      await tester.ensureVisible(find.text('自动重新开始'));
+      await pumpFrames(tester, 4, const Duration(milliseconds: 50));
+      await tester.tap(find.text('自动重新开始'));
+      await pumpFrames(tester, 4, const Duration(milliseconds: 50));
+      expect(StorageService.getSetting('onFinish', ''), 'autoRestart');
+    });
+
+    testWidgets('七张分区卡从上到下都在：外观→数字样式→翻页动画→进度→结束→屏幕与声音→关于',
+        (tester) async {
+      await pumpApp(tester);
+      await openSettings(tester);
+      final options = find.descendant(
+          of: find.byType(SettingsPage), matching: find.byType(Scrollable));
+
+      // 只往下滚：哪张卡排到了前面，后面的那张就永远滚不到，所以这一趟同时验了顺序
+      final cards = <Finder>[
+        find.text('外观'),
+        find.text('数字样式'),
+        find.textContaining('翻页动画（${FlipAnimStyle.values.length - 1} 种'),
+        find.text('进度显示'),
+        find.text('倒计时结束'),
+        find.text('屏幕与声音'),
+        find.text('关于'),
+      ];
+      for (final card in cards) {
+        await tester.scrollUntilVisible(card, 160, scrollable: options);
+        await pumpFrames(tester, 2, const Duration(milliseconds: 50));
+        expect(card, findsOneWidget, reason: '这张分区卡滚不到，顺序或标题变了');
+      }
+    });
+
+    testWidgets('翻页动画按分组族铺开，一族一个小标题', (tester) async {
+      await pumpApp(tester);
+      await openSettings(tester);
+      final options = find.descendant(
+          of: find.byType(SettingsPage), matching: find.byType(Scrollable));
+
+      for (final family in flipAnimFamilies.keys) {
+        await tester.scrollUntilVisible(find.text(family), 120,
+            scrollable: options);
+        await pumpFrames(tester, 2, const Duration(milliseconds: 50));
+        expect(find.text(family), findsOneWidget,
+            reason: '「$family」这一族没铺成小标题，芯片会挤成一整面墙');
+      }
+    });
+
+    testWidgets('设置页点「底部细进度条」开关：状态翻转并落盘', (tester) async {
+      await pumpApp(tester);
+      await openSettings(tester);
+      final options = find.descendant(
+          of: find.byType(SettingsPage), matching: find.byType(Scrollable));
+      await tester.scrollUntilVisible(find.text('底部细进度条'), 160,
+          scrollable: options);
+      await tester.ensureVisible(find.text('底部细进度条'));
+      await pumpFrames(tester, 2, const Duration(milliseconds: 50));
+
+      await tester.tap(find.text('底部细进度条'));
+      await pumpFrames(tester, 4, const Duration(milliseconds: 50));
+      expect(settings().showProgressBar, isFalse);
+      expect(StorageService.getSetting('showProgressBar', true), isFalse,
+          reason: '开关只在当次会话生效等于没存，重启又回到开');
+      expect(tester
+          .widget<Switch>(find.descendant(
+              of: find.ancestor(
+                  of: find.text('底部细进度条'),
+                  matching: find.byType(SwitchListTile)),
+              matching: find.byType(Switch)))
+          .value, isFalse);
     });
   });
 }

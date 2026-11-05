@@ -12,6 +12,7 @@ class AppSettingsState {
   final ProgressDecor progressDecor;
   final FinishBehavior onFinish;
   final PlateFrame plateFrame;
+  final bool showProgressBar;
   final bool keepScreenOn;
   final bool soundEnable;
 
@@ -24,6 +25,7 @@ class AppSettingsState {
     required this.progressDecor,
     required this.onFinish,
     required this.plateFrame,
+    required this.showProgressBar,
     required this.keepScreenOn,
     required this.soundEnable,
   });
@@ -37,6 +39,7 @@ class AppSettingsState {
     ProgressDecor? progressDecor,
     FinishBehavior? onFinish,
     PlateFrame? plateFrame,
+    bool? showProgressBar,
     bool? keepScreenOn,
     bool? soundEnable,
   }) {
@@ -49,6 +52,7 @@ class AppSettingsState {
       progressDecor: progressDecor ?? this.progressDecor,
       onFinish: onFinish ?? this.onFinish,
       plateFrame: plateFrame ?? this.plateFrame,
+      showProgressBar: showProgressBar ?? this.showProgressBar,
       keepScreenOn: keepScreenOn ?? this.keepScreenOn,
       soundEnable: soundEnable ?? this.soundEnable,
     );
@@ -66,18 +70,19 @@ class AppSettingsNotifier extends Notifier<AppSettingsState> {
     final themeRaw =
         StorageService.getSetting('themeBase', ThemeBase.dark.name);
     final uiRaw = StorageService.getSetting('uiStyle', UiStyle.classic.name);
-    final flipRaw =
-        StorageService.getSetting('flipAnimStyle', FlipAnimStyle.tickerRoll.name);
+    final flipRaw = StorageService.getSetting(
+        'flipAnimStyle', FlipAnimStyle.tickerRoll.name);
     final visualRaw = StorageService.getSetting(
         'clockVisualStyle', ClockVisualStyle.appleMinimal.name);
     final speedRaw =
         StorageService.getSetting('animSpeed', AnimSpeed.normal.name);
-    final decorRaw = StorageService.getSetting(
-        'progressDecor', ProgressDecor.none.name);
-    final finishRaw = StorageService.getSetting(
-        'onFinish', FinishBehavior.showEgg.name);
+    final decorRaw =
+        StorageService.getSetting('progressDecor', ProgressDecor.none.name);
+    final finishRaw =
+        StorageService.getSetting('onFinish', FinishBehavior.showEgg.name);
     final frameRaw =
         StorageService.getSetting('plateFrame', PlateFrame.follow.name);
+    final barRaw = StorageService.getSetting('showProgressBar', true);
     final keepOn = StorageService.getSetting('keepScreenOn', true);
     final soundOn = StorageService.getSetting('soundEnable', true);
 
@@ -114,6 +119,7 @@ class AppSettingsNotifier extends Notifier<AppSettingsState> {
         (e) => e.name == frameRaw,
         orElse: () => PlateFrame.follow,
       ),
+      showProgressBar: barRaw,
       keepScreenOn: keepOn,
       soundEnable: soundOn,
     );
@@ -130,6 +136,7 @@ class AppSettingsNotifier extends Notifier<AppSettingsState> {
       'progressDecor': newState.progressDecor.name,
       'onFinish': newState.onFinish.name,
       'plateFrame': newState.plateFrame.name,
+      'showProgressBar': newState.showProgressBar,
       'keepScreenOn': newState.keepScreenOn,
       'soundEnable': newState.soundEnable,
     });

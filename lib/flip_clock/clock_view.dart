@@ -123,8 +123,7 @@ class _ClockViewState extends ConsumerState<ClockView> {
     // stayZero：什么都不做，屏幕留着 00:00:00
     if (!setting.soundEnable) return;
     try {
-      await (_alarm ??= AudioPlayer())
-          .play(AssetSource('audio/alert.wav'));
+      await (_alarm ??= AudioPlayer()).play(AssetSource('audio/alert.wav'));
     } catch (_) {
       // 音频缺失/解码失败时静默降级
     }
@@ -278,10 +277,12 @@ class _ClockViewState extends ConsumerState<ClockView> {
   ) {
     final decor = appSetting.progressDecor;
     if (decor == ProgressDecor.none || decor == ProgressDecor.sky) {
-      return _progressBar(clockState, tokens);
+      // 关了以后倒计时画面只剩数字本身：连「还在走」的凭据都不留
+      return appSetting.showProgressBar
+          ? _progressBar(clockState, tokens)
+          : const SizedBox.shrink();
     }
-    final band =
-        (MediaQuery.sizeOf(context).height * 0.18).clamp(46.0, 104.0);
+    final band = (MediaQuery.sizeOf(context).height * 0.18).clamp(46.0, 104.0);
     return SizedBox(
       height: band,
       child: Padding(
@@ -303,7 +304,8 @@ class _ClockViewState extends ConsumerState<ClockView> {
       padding: const EdgeInsets.symmetric(horizontal: 48),
       child: ClipRRect(
         // 复古印刷/编辑部这类直角风格把进度条也收成直角
-        borderRadius: BorderRadius.circular(tokens.chipRadius.clamp(0, 8).toDouble()),
+        borderRadius:
+            BorderRadius.circular(tokens.chipRadius.clamp(0, 8).toDouble()),
         child: LinearProgressIndicator(
           value: clockState.progress,
           minHeight: 5,
@@ -321,6 +323,9 @@ class _ClockViewState extends ConsumerState<ClockView> {
     UiTokens tokens,
   ) {
     final isCountdown = clockState.workMode == ClockWorkMode.countdown;
+    final zeroed = isCountdown &&
+        !clockState.isRunning &&
+        clockState.remainTime == Duration.zero;
     final chips = <Widget>[
       for (final min in AppConstants.countdownPresets)
         _chip(
@@ -346,13 +351,25 @@ class _ClockViewState extends ConsumerState<ClockView> {
       ),
       if (isCountdown)
         _chip(
+          // 归零那一档「继续」是死的（resumeCountdown 见 remainTime<=0 直接 return），
+          // 所以停留档下这颗芯片换成「重来」，用这一轮的 total 原地再起一次。
           tokens: tokens,
-          label: clockState.isRunning ? '暂停' : '继续',
+          label: zeroed
+              ? '重来'
+              : clockState.isRunning
+                  ? '暂停'
+                  : '继续',
           selected: false,
-          icon: clockState.isRunning ? Icons.pause : Icons.play_arrow,
+          icon: zeroed
+              ? Icons.refresh
+              : clockState.isRunning
+                  ? Icons.pause
+                  : Icons.play_arrow,
           onTap: clockState.isRunning
               ? notifier.pauseCountdown
-              : notifier.resumeCountdown,
+              : zeroed
+                  ? () => notifier.startCountdown(clockState.total)
+                  : notifier.resumeCountdown,
         ),
       if (isCountdown)
         _chip(
@@ -399,7 +416,8 @@ class _ClockViewState extends ConsumerState<ClockView> {
           letterSpacing: tokens.labelTracking * 0.3,
           fontWeight: selected ? FontWeight.w700 : FontWeight.w400),
       avatar: icon == null ? null : Icon(icon, size: 18, color: fg),
-      backgroundColor: selected ? ink.withValues(alpha: 0.16) : Colors.transparent,
+      backgroundColor:
+          selected ? ink.withValues(alpha: 0.16) : Colors.transparent,
       side: BorderSide(color: border, width: tokens.chipStrokeWidth),
       shape: shape,
       onPressed: onTap,
@@ -460,7 +478,8 @@ class _CustomCountdownDialogState extends State<_CustomCountdownDialog> {
             maxLength: 3,
             decoration: InputDecoration(
               labelText: '分钟',
-              hintText: '${AppConstants.minCountdownMinutes}-${AppConstants.maxCountdownMinutes}',
+              hintText:
+                  '${AppConstants.minCountdownMinutes}-${AppConstants.maxCountdownMinutes}',
               counterText: '',
               errorText: _error,
             ),

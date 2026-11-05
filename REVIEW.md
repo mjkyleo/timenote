@@ -398,3 +398,131 @@ isPrerelease name publishedAt tagName tarballUrl targetCommitish uploadUrl url z
 - **停留档下「继续」按钮是死的**：`resumeCountdown` 在 `remainTime <= Duration.zero` 时直接 return（`lib/core/providers/clock_providers.dart:96`），用户要再点一次预设或自定义才起得了表。要不要把归零态的「继续」换成「重来」，等真机看观感时一并判。
 - 没出包、没跑模拟器截图、鸿蒙没复跑（本轮全是纯 Dart：两个枚举 + 一个入参，没碰平台通道）。
 - 需求清单剩下的：R2 页面居中 / R3 配色割裂 / R4 手动横竖 / R6 显示单位勾选 / R9 待办增强 / R10 纪念日提醒 / R14 DIN 数字字体子集化 / R15 掘金整页设计 / R17 包体积。R13（隐藏系统栏）上一轮已做；R7、R8 按用户原话暂缓。
+
+## 十二、第六轮：彩蛋文案的长短与中英文显示
+
+需求出处：用户说会自己导入一个文案文件，结束后以彩蛋形式弹出、设置里可选；并明确「你在显示文案的时候注意这个文案的英文和中文的显示情况」。这一批**只做「显示得下、看得清」这一半**——文件本身还没到（仓库里仍是 `assets/data/quotes.json` 那 520 条全中文），所以导入格式、设置里怎么选，等用户的文件与答复，不猜着写。
+
+### 12.1 压出来的三个真实缺陷（都不是「加了测试」而是「测试抓到 bug」）
+
+判据不写「不报错」，写**这一条文案不用滑动就能整块看完**：`expectFitsWholeCopy` 比 `Text` 自身的宽高 ≤ `SingleChildScrollView` 视口宽高，并断言无溢出异常。蛋屏是待机屏，倒计时结束后没人会去滑屏幕找后半句。
+
+取证方式：把这 13 例对着 **HEAD 那版实现**（`git show HEAD:lib/egg/egg_display.dart`，只补一行公开 `minFont` 让它编译得过）跑一遍，**6 例红**——表里前两列是两次真实跑测的「文本块高 / 视口高」，不是推算。
+
+| 场景（屏 × 文案 × 系统字号） | HEAD 只看宽度 | 测量不乘系统字号（摘 `textScaler`） | 现版本（三条都修） |
+| --- | --- | --- | --- |
+| 800×600 · 150 字中文 · 1x | 576.0 / 459.5 | 整块可见 | 整块可见 |
+| 1280×800 · 整段英文 · 1x | 896.0 / 659.5 | 整块可见 | 整块可见 |
+| 914×411 · 中英混排夹 #123 · 1x | 320.0 / 270.5 | 整块可见 | 整块可见 |
+| 914×411 · 不可断行长 URL · 1x | 384.0 / 270.5 | 整块可见 | 整块可见 |
+| 800×600 · 150 字中文 · **2x** | 2560.0 / 416.5 | **1386.0** / 416.5 | 整块可见 |
+| 914×411 · 整段英文 · **2x** | 3840.0 / 227.5 | **826.0** / 227.5 | 整块可见 |
+
+1. **只看宽度定字号**（HEAD `egg_display.dart:23` 是 `(屏宽/18).clamp(18.0, 40.0)`）：横向撑满了，竖向根本没人管，1x 那四条全被顶出可视区（最狠的整段英文要 896 高，屏只有 659.5）。改法：外层 `LayoutBuilder` 里再套一层，拿文案区**真实可用高宽**，`TextPainter` 从基准档按 ×0.88 逐档试，取第一个「整块放得下」的档。
+2. **`TextPainter` 不乘系统字号**：`Text` 渲染时自己乘 `MediaQuery.textScalerOf(context)`，`TextPainter` 不乘。只修第 1 条时，2x 那两条仍然溢出（1386.0 / 826.0），因为测量按「没缩放」判定放得下。改法：`textScaler` 一起喂给 `TextPainter`，测量与渲染同一口径。
+3. **可读下限钉的是 style 里的数字，不是渲染出来的大小**：`minFont = 14` 在 2x 系统下等于 28px 实高，循环提前收手——修完第 2 条后 914×411 + 2x + 英文仍然 410.0 > 227.5。改法：收手条件写成 `scaler.scale(size) <= minFont`，下限管的是渲染后的字号。
+
+### 12.2 中文与英文的显示差异（这条需求的正解）
+
+- 中文任意两字之间都能断行、每字等宽；英文只能在空格处断，一个长单词就是一整块不可分的最小单位。所以同样条长的两种文案，英文更容易顶破行宽 → 只能选更小那一档。测试用**关系断言**（`enSize <= cnSize`）钉这条，不用具体数值：`flutter_test` 把字形画成 1em 方块，拉丁文比真机 Roboto 宽得多，具体字号在测试里是悲观值，关系才不会反过来。
+- 不可断行的超长 URL 会在斜杠处折行，**光管高度拦不住横向溢出**，所以宽高两个方向都要量（`urlToken` 那条 914×411 专测这个）。
+- 极短文案不能被误伤：9 字短句在 1280×800 上就是基准 40 档，2x 系统字号下也还是 40——`closeTo(40, 0.51)` 钉死，防止「一律缩到下限」这种假安全。
+- 长到缩不动时**明确交回滚动**：竖向溢出可接受（滑一下比整块消失好），横向溢出会把文字裁掉、那是真丢内容，所以那条只断言宽度不破 + 不异常。
+
+### 12.3 反向验证（摘掉修好，逐条看是哪几例红）
+
+- 摘 `TextPainter` 的 `textScaler: scaler` 一行 → **13 例里正好 2 例红**，且都是 2x 那两条：1386.0 vs 416.5、826.0 vs 227.5；1x 的 11 例全绿。说明这个参数只在缩放路径上起作用，测试没有连带误伤。
+- 把收手条件从 `scaler.scale(size) <= minFont` 改回 `size <= minFont` → **13 例里正好 1 例红**（横屏窄高 + 2x 英文：410.0 vs 227.5），其余 12 例绿——默认缩放下两个条件等价，所以这条测试盯的就是「下限按谁算」。
+- 两处还原后：`test/egg_display_test.dart` `+13: All tests passed!`，全量 `+181: All tests passed!`。
+
+### 12.4 本轮数字（实测）
+
+- 测试 168 → **181 例**：新增 `test/egg_display_test.dart` **13 例**（1em 方块字体下的形态判据），其余逐文件 `flutter test <file>`：`app_widget_test.dart` 25、`flip_rendering_test.dart` 86、`ui_style_test.dart` 16、`progress_decor_test.dart` 18、`clock_notifier_test.dart` 12、`storage_service_test.dart` 3、`todo_model_test.dart` 5、`egg_service_test.dart` 3；`+13` 与全量 `+181` 一致（25+12+13+3+86+18+3+5+16=181）。
+- 改动面：`lib/egg/egg_display.dart` 66 → 103 行（`git diff --numstat` **+57 / −20**）+ 新文件 `test/egg_display_test.dart` 179 行；`flutter analyze` → `No issues found!`。
+- `EggDisplay.minFont` 从私有 `_minFont` 提为公开常量：测试要能断言「不是靠缩成 14 了事」蒙过的，与其在测试里重抄 14，不如让源码只有一个出处。
+
+### 12.5 这轮踩到的 SDK 事实
+
+- **这个 SDK 的 `TextScaler` 没有 `scaleFontSize()`**（那是更新版本 Flutter 的 API），方法名是 `scale(double fontSize)`；`textScaleFactor` getter 存在但已 `@Deprecated`（v3.12.0-2.0.pre 起），用了会被 `flutter analyze` 挑出来，所以按 `scale()` 写。
+- `MediaQuery.textScalerOf(context)` 是拿缩放系数的正路；`Text` 自己会乘，`TextPainter` 与 `RichText` 手写时必须显式传。
+
+### 12.6 边界（没做到的部分）
+
+- **观感仍由用户判**：这批只保证「不溢出、整块可见」，字变小之后好不好读、14px 在平板上是否偏小，测试给不出结论，也没重新出包、没跑模拟器截图。
+- **鸿蒙没复跑**：改动全在纯 Dart 排版层（`TextPainter`/`LayoutBuilder`），没碰平台通道。
+- **测试字体对拉丁文是悲观值**：`flutter_test` 把字形画成 1em 方块，比真机 Roboto 宽，所以英文在测试里选出的字号比真机更小一档；真机上英文会更宽松——这是偏安全的方向，但不能拿测试数值当"真机观感"。
+- **导入文案这件事一行没写**：格式（JSON 数组 / 逐行 txt / CSV）、交付方式（打进 assets 重新构建，还是设备内选文件——后者要引 `file_picker`，会撞 R17 包体积）、设置里到底选什么（文案库 / 语言 / 展示形态），三个问题都还没答复，等文件到了再定。
+- 本轮还留一个已知短板：只有正文参与自适应，两行辅助文字是各自的固定/半固定档——页眉 `base * 0.45`（`base` 已 clamp 到 18–40，所以页眉 8.1–18，`egg_display.dart:33`）、页脚硬编码 13（`egg_display.dart:61`）。长文案把正文一路压到下限 14 之后，正文只比页脚大 1px、和页眉差不多大，主次关系就只剩字色在分了。这条等真实文案进来再判要不要把辅助文字一起纳入同一套缩放。
+
+## 十三、第七轮：归零「重来」+ 细进度条开关 + 设置页七张卡
+
+用户这一轮的语音同时给了「四个问题的答复」和「三条新需求」，先把口径钉住（原话转写有噪声，按 §1 的方式复述确认过）：
+
+| 事项 | 用户的决定 | 这轮怎么落的 |
+| --- | --- | --- |
+| 文案文件格式 | 「文件的格式你是用 json 格式」 | 维持 `assets/data/quotes.json` 那个 JSON 数组，**不新增格式** |
+| 文案怎么进 App | 「你把它转成……文件直接存起来就行了」 | 由我把外部文案转成 JSON 预置文件、打进 assets 随包走；**不做设备内选文件**（不引 `file_picker`，也就不碰 R17 包体积） |
+| 文案的设置项 | 「不用给任何权限，完全是随机的出现」 | 设置里**一个开关都不给**，`EggService` 现在的形态就是纯随机（只在卡片里留一句 hint 说明） |
+| 第 4 个问题 | 「你就加上那个重来吧」 | 归零停留档那颗芯片换成「重来」，见 §13.1 |
+| 新需求 A | 「下面的那个进度条也要放在设置里可以开或者可以关」 | 新增 `showProgressBar`，见 §13.2 |
+| 新需求 B | 「设置里面的一个布局好好整理一下，不要那么乱」 | 设置页重排成七张分区卡 + 动画按族分组，见 §13.3 |
+
+### 13.1 归零之后那颗「继续」是死的
+
+- **根因**：`resumeCountdown()` 开头就是 `if (state.isRunning || state.remainTime <= Duration.zero) return;`（`lib/core/providers/clock_providers.dart:97`）。停留档 `00:00:00` 时 `remainTime` 正好是 zero，所以点「继续」什么都不发生——按钮在场、也亮着，但按了没反应。
+- **落点**：判定放在视图层（`clock_view.dart:326` 的 `zeroed`），标签/图标/回调三处同步分叉（`:357`、`:363`、`:370`），「重来」走 `startCountdown(clockState.total)`，用上一轮的时长原地再起。
+- **为什么不动 notifier**：下沉成「`resumeCountdown` 在归零时自动当重开用」会改掉那个方法的语义（暂停-继续是一对，重开是另一件事），而且三档结束行为本来就分发在视图层（见 §11.2），别再开第二个例外。
+- 三档下这条的可见面不一样：停留档归零后画面就停在那，「重来」是唯一能原地再起的入口；自动重开档 `remainTime` 直接被上一轮 `total` 填回去，永远走不到 zero，看不到这颗；弹彩蛋档只替换中间那块时钟区域，**底下芯片条照旧在场**，所以彩蛋期间那颗也是「重来」——这条由「归零展示彩蛋」用例里新增的一行 `expect(find.text('重来'), findsOneWidget)` 钉住，不是推测。
+
+### 13.2 细进度条开关（R18）
+
+`showProgressBar` 默认 `true`（老版本一直有这根条，加开关不能顺手改变默认画面），`update()` 写的设置键从 10 个变成 11 个（新加的这条在 `lib/core/providers/app_providers.dart:139`）。与「底层进度组件」的优先级是实测过的一张表：
+
+| `progressDecor` | 开关开 | 开关关 |
+| --- | --- | --- |
+| `none`（默认） | 细进度条 | 什么都不画 |
+| 沙漏/水位/环形/螺旋/灯带/年轮/蜡烛（7 档） | 只有进度组件，**不画细条** | 同左（这 7 档本来就让位给组件） |
+| `sky` 日出日落 | 背景层 + 细进度条 | 只有背景层 |
+
+- 「选了组件就不再画细条」不是这条需求带的，是 §10.3 就定下的「同一份信息不画两遍」；这轮补的是**用户主动关**这一支：sky 不顶细条，但用户点了关，关必须算数。
+- 关掉之后倒计时画面只剩数字本身，连「还在走」的凭据都没有——这正是用户要的形态（那行开关的副标题「倒计时时数字下方那一根；关掉画面只剩数字」就是把这句话写给用户看的，`settings_page.dart:144`），不是遗漏。
+
+### 13.3 设置页：从一整面芯片墙到七张分区卡
+
+`_options` 现在按「先看外观、再看数字、最后看行为」排七张卡：**外观**（底色 / 界面风格 / 数字外框）→ **数字样式**（计时画面 / 动画速度）→ **翻页动画**（按族铺 8 个小标题）→ **进度显示**（细进度条开关 + 底层进度组件）→ **倒计时结束** → **屏幕与声音** → **关于**。
+
+- 四个小构件撑起这套结构：`_card`（带标题的分区卡）、`_group`（组内小标签 + `Wrap` 芯片）、`_switch`（`SwitchListTile`）、`_hint`（一句话说明）。原来的 `_sectionTitle` / `_chips` 删掉了，所有芯片文案一个字没改。
+- 25 档翻页动画不再平铺：`flipAnimFamilies`（`lib/settings/style_picker.dart:217`）按实验室原样登记成 翻折(5) / 位移(3) / 遮罩(3) / 形变(3) / 碎片(3) / 光学(3) / 基础(4) / 混合(1) 八族，设置页循环这张表生成小标题。
+- **卡里必须用 `Material` 不能用 `Container`+`BoxDecoration`**：进度显示与屏幕与声音两张卡内是 `SwitchListTile`，它把背景和水波纹画在最近的 Material 祖先上，中间垫一层带色 `DecoratedBox` 会把开关的点击反馈整个吃掉，Flutter 自己会断言报出来（`lib/settings/settings_page.dart` 的 `_card` 上方注释记着这条）。
+- 测试侧配套两条：① 「七张分区卡从上到下都在」只**往下**滚（`scrollUntilVisible`），所以顺序错了就滚不到、直接超时，一趟同时验了「在不在」和「排在哪儿」；② 「25 档动画正好被分组卡盖住」是集合相等判据，新加一档动画忘了登记就红。
+
+### 13.4 反向验证（三条，改坏→必须变红→还原后全绿）
+
+| 改坏的地方 | 怎么改坏 | 变红 |
+| --- | --- | --- |
+| `clock_view.dart` 的 `zeroed` | 前面加 `false &&`（等于归零态不再单独识别） | 「归零后那颗芯片是『重来』」**1/1 例红** |
+| `clock_view.dart` 的进度分支 | `return appSetting.showProgressBar` → `return true`（开关失效） | 「底部细进度条开关」**5 例里 3 例红**（默认在场+关掉消失、sky 档关掉必须算数、重启读回）；另两例（实时时钟不画条、沙漏不画两遍）本来就不依赖开关，保持绿是对的 |
+| `style_picker.dart` 的分组表 | 删掉 `'混合': [autoMix]` 这一族 | 「25 档动画正好被分组卡盖住」**1 例红**，报「分组表少一档就有动画点不到」 |
+
+### 13.5 本轮数字（实测）
+
+- 测试 181 → **191 例**（`flutter test` → `+191: All tests passed!`）：`app_widget_test.dart` 25 → **34**（归零「重来」1 + 细进度条开关 5 + 设置页 3），`flip_rendering_test.dart` 86 → **87**（分组登记表）；逐文件相加 34+12+13+3+87+18+3+5+16 = **191**，与全量一致。
+- 改动面（`git diff --numstat`，插入/删除）：`lib/flip_clock/clock_view.dart` **30/11**（文件 513 行）、`lib/core/providers/app_providers.dart` **13/6**（144 行，含第 11 个键）、`lib/settings/settings_page.dart` **173/124**（重排后 339 行）、`lib/settings/style_picker.dart` **51/3**（315 行，只多那张分组表）；测试 `test/app_widget_test.dart` **185/8**（807 行）、`test/flip_rendering_test.dart` **13/0**、`test/progress_decor_test.dart` **4/0**（只加 `ensureVisible`，例数不变）。
+  - 注：这批和上一批（彩蛋排版，`lib/egg/egg_display.dart` 57/20 + 新文件 `test/egg_display_test.dart` 179 行）都还没提交，所以对着 HEAD `94ddb91` 的总 numstat 是两批叠加的；上面按文件拆开列的是各自那一份。
+- `flutter analyze` → **`No issues found!`**。
+
+### 13.6 这轮踩到的工具事实
+
+- **`scrollUntilVisible` 的 `scrollable` 参数必须是 `Scrollable`**：传 `find.byType(ListView)` 直接 `_TypeError: ListView is not a subtype of Scrollable`。写法是 `find.descendant(of: find.byType(SettingsPage), matching: find.byType(Scrollable))`；而 `dragUntilVisible` 反而能吃任意祖先 finder，两者不一样，别照抄。
+- `scrollUntilVisible` / `dragUntilVisible` 只保证「建出来了、快到视口」，不保证点得到：本轮 tap 前补了 5 处 `tester.ensureVisible(finder)`（`app_widget_test.dart` 4 处 + `progress_decor_test.dart` 1 处），否则会静默 miss 并报「derived an Offset ... outside the bounds of the root of the render tree」。
+- `Finder.description` 这个 property 在本 SDK 已 `@Deprecated`（改用 `describeMatch`），测试的 `reason` 里别拼它，失败输出本来就会打印 finder。
+- **这个 SDK 的 `dart format` 不能对本仓库全局跑**：把 HEAD 版本的 4 个文件拷出来跑 `--output=none`，`4 changed` —— 仓库现在这套排版本来就不满足它，全局格式化会顺手重写十几条没碰过的文件（`--output=none` 只报告不改盘）。所以只在手写的行上按周围风格对齐。
+- Windows 检出是 CRLF：`perl -pi -e 's/xxx$//'` 里的 `$` 锚匹配不到行尾（`\r` 挡在前面），改代码要不用行尾锚或者用 `\b`。
+
+### 13.7 边界（没做到的部分）
+
+- **文案文件还是没到**：这轮只是把口径定死（JSON 数组、打进 assets、设置里不给开关），一句导入相关代码都没写；`EggService` 现在读的是仓库里已有的 `assets/data/quotes.json`。
+- **没重新出包、没跑模拟器截图**：七张卡在 800×600 测试面与横屏 914×411 冒烟里都不报错，但「好看不好看、分组切得顺不顺」得人眼判，和动画观感一起留给用户在 dev-build 直链上自测。
+- **「重来」只复用上一轮的 `total`**，不重新弹自定义输入框；要换时长还得再点一次时长档。
+- **鸿蒙没复跑**：改动全在纯 Dart（视图分叉、Provider 一个键、设置页 widget 树），没碰平台通道。
+- 编号说明：本轮新分配的 R19=归零「重来」、R20=设置页分区重排（R18=细进度条开关在会话里先用过），R16=扩充动画种类、R17=包体积不变。

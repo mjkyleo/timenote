@@ -301,6 +301,19 @@ void main() {
       }
     });
 
+    test('25 档动画正好被分组卡盖住：新加动画没分组就会漏上设置页', () {
+      final grouped = [for (final f in flipAnimFamilies.values) ...f];
+      expect(grouped.toSet().length, grouped.length,
+          reason: '同一档挂进两个分组，设置页会出现两颗都能选的重复芯片');
+      expect(
+        grouped.toSet(),
+        FlipAnimStyle.values.toSet(),
+        reason: '分组表少一档就有动画点不到，多一档说明新加的动画没登记',
+      );
+      expect(flipAnimFamilies.values.any((f) => f.isEmpty), isFalse,
+          reason: '空分组会在设置页画出一个只有小标题、没有芯片的窗口');
+    });
+
     testWidgets('碎片类的散开方向逐帧稳定，只会往原位收不会抖成噪点', (tester) async {
       // 散开向量靠 sin-hash 取种子（与 t 无关），所以同一块碎片每一帧都在同一条飞行线上
       Future<List<Offset>> piecesAt(FlipRenderer r, double t) async {
