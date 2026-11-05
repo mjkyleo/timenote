@@ -201,7 +201,9 @@ classic 的两版令牌没有任何底板装饰（`hasPlateDecor == false`），
 
 ### 9.4 「为什么这么大」——用空壳 Demo 对照实测
 
-同版本 SDK 各出一个 arm64 release：空壳 `flutter create` Demo **15,503,242** 字节，时笺 **17,917,607** 字节，差 2,414,365。`libflutter.so` 两份**逐字节相同**（11,763,360），差值全在 `libapp.so`（Dart AOT，3,212,168 → 5,440,392，插件与自己的代码）和 dex 胶水（520,160 → 573,424）。自己的素材只有 `quotes.json` 27,867 + `alert.wav` 30,912 = 58,779 字节，占未压缩总量 18,268,158 的 0.3%。所以「功能这么简单却也 17MB」是 Flutter 的框架底价，不是包里有冗余。完整对照表在 README「本机出包（Android）」。
+同版本 SDK 各出一个 arm64 release：空壳 `flutter create` Demo **15,503,242** 字节，时笺 **17,917,607** 字节（本轮），差 2,414,365。`libflutter.so` 两份**逐字节相同**（11,763,360），差值全在 `libapp.so`（Dart AOT，3,212,168 → 5,440,392，插件与自己的代码）和 dex 胶水（520,160 → 573,424）。自己的素材只有 `quotes.json` 27,867 + `alert.wav` 30,912 = 58,779 字节，占未压缩总量 18,268,158 的 0.3%。所以「功能这么简单却也 17MB」是 Flutter 的框架底价，不是包里有冗余。完整对照表在 README「本机出包（Android）」。
+
+> 第八/九轮之后同一台机器复跑（2026-11-05 23:32，`52e4bf3`）：时笺 arm64 变成 **18,245,379**，`libapp.so` 5,768,072（+327,680，是这两轮新增的动画/风格/检查更新代码），`libflutter.so`、`classes.dex`、`libdartjni.so`、素材四样逐字节没动，未压缩总量 18,596,066 / 仍是 66 个文件。空壳 Demo 那列不受本项目影响，所以 README 表里现在写的是 Demo 15,503,242 对当前包 18,245,379、差值 +2,742,137 —— 结论（底价在引擎）不变。
 
 对照工程留在本机 `D:/scratch/sizeprobe`（`flutter create` 空壳，同 SDK 同参数出包，arm64 15,503,242 / arm32 12,709,602 / x86_64 16,945,556），随时可以重跑校验；它不属于仓库，不需要时可删。
 
@@ -651,3 +653,65 @@ isPrerelease name publishedAt tagName tarballUrl targetCommitish uploadUrl url z
 - **`--latest` 只影响 Releases 页那个绿色标签**，不影响设置页「检查更新」（它读 `dev-build` 的 txt）。也就是说正式版发出去后，App 里的「检查更新」仍然只看开发版那条通道，这是有意保持的单一口径。
 - 未验证：真机上点「检查更新」的实际观感、v1.0.0 包装上平板后是否需要先卸载（预期需要，见 15.4）。
 
+
+## 十六、第十轮：文档校准（把「落后」逐条量回来）
+
+触发是用户那句「这次改动比较大，一些说明文档好像有点落后了，你好好检查一下」。所以这一轮不写新功能，只做一件事：**把文档里每一条数字拿去和当前代码/当前产物对一遍**，对不上的要么改、要么标清楚它是哪一轮的历史。
+
+### 16.1 不用重跑就能核的（读文件、跑命令即可）
+
+| 文档里写的 | 怎么核 | 结果 |
+| --- | --- | --- |
+| 24 种动画 + 混合轮换 = 25 档 | `FlipAnimStyle` 枚举值计数 | ✅ 25 个值（24 + `autoMix`） |
+| 8 种底层进度组件 | `ProgressDecor` | ✅ 9 个值（8 + `none`），文档口径是「8 种可选」，一致 |
+| 10 种数字风格 / 11 套界面风格 / 外框四档 / 结束三档 | `ClockVisualStyle` / `UiStyle` / `PlateFrame` / `FinishBehavior` | ✅ 10 / 11 / 4 / 3 |
+| 彩蛋 520 条（441 中文 + 79 外文） | `assets/data/quotes.json` 解析 | ✅ 27,867 字节、520 条、441 + 79 |
+| 逐文件测试数 34/16/87/18/12/3/5/3/13/11 = 202 | 全量 `flutter test` 收尾计数 | ✅ 本轮重跑，仍 **202 例全绿**（`flip_rendering_test.dart` 的 87 不能用 `grep -c testWidgets` 数 —— 它是循环批量生成的用例，本机实测那种数法只有 18，所以这类数字只能来自真跑） |
+| 鸿蒙工程 33 个文件入库 | `git ls-files ohos \| wc -l` | ✅ 33 |
+| Flutter 3.47.8 | `flutter --version` | ✅ 3.47.8（framework `737ba8f885`） |
+| 版本号 | `pubspec.yaml` 的 `1.0.0+1` 对上标签 `v1.0.0` | ✅ 对齐 |
+| 「`pubspec.yaml` 的 6 个非鸿蒙依赖全部真被 import」 | 逐个 `grep -rl "package:<dep>/" lib/` | ⚠️ 结论对，**计数错**：riverpod 已经是 **9** 个文件（第八轮新增 `lib/core/update_check.dart` 用了 `Provider`），文档还写着 8。已改。顺带查清 `package:hive` 本身在 `lib/` 里 0 处直接 import，只有 `storage_service.dart` 走 `hive_flutter` —— 文档写成「hive/hive_flutter 各 1 个」是把两者当一个包族说的，口径保留但不再单列 hive |
+
+### 16.2 必须重跑才能核的：产物字节数
+
+文档里凡是「本机出包实测大小」的都是 **14:36 / 12:52 那一批**，而 R21（检查更新）+ 正式版通道是 22:06 之后才提交的 —— 数字必然落后。这一轮在 `52e4bf3`（代码 == `947ecaf`，`52e4bf3` 只动文档，编译输入等价）把两条链共 7 个产物全部重出：
+
+| 产物 | 旧（14:36 / 12:52） | 新（23:32–23:43） | 差 |
+| --- | --- | --- | --- |
+| `app-arm64-v8a-release.apk` | 17,917,607 | **18,245,379** | +327,772 |
+| `app-armeabi-v7a-release.apk` | 15,255,041 | **15,648,349** | +393,308 |
+| `app-x86_64-release.apk` | 19,343,534 | **19,736,842** | +393,308 |
+| `app-release.apk`（fat） | 51,423,838 | **52,538,042** | +1,114,204 |
+| `app-debug.apk` | 182,984,197 | **183,056,489** | +72,292 |
+| `entry-default-unsigned.hap`（release/AOT） | 22,748,875 | **23,093,027** | +344,152 |
+| `entry-default-unsigned.hap`（debug） | 125,814,260 | **125,984,972** | +170,712 |
+
+拆包看增量落在哪：arm64 里 `libapp.so` 5,440,392 → **5,768,072**（+327,680，就是这两轮的 Dart），`libflutter.so` 11,763,360、`classes.dex` 573,424、`libdartjni.so` 131,400、`NOTICES.Z` 111,200、`quotes.json` 27,867、`alert.wav` 30,912 **逐字节没动**；`MaterialIcons-Regular.otf` 2,352 → **2,440**（tree-shake 结果随引用的图标变）。未压缩合计 18,596,066 / 仍 66 个文件。鸿蒙那边同理：`libapp.so` 5,325,744 → **5,669,808**，`libflutter.so` 16,416,376 与 `ets/modules.abc` 725,136 不变，debug 的 `kernel_blob.bin` 71,840,168 → **72,010,880**（+170,712，正好等于整包增量）。
+
+### 16.3 `tool/build_hap.sh` 里那句没跑过的 `--dart-define`
+
+第九轮给脚本加了 `define="--dart-define=BUILD_SHA=$sha"`，那之后这条链路一直没跑过。这轮补跑，并且不满足于「构建成功」，直接把产物解出来验字符串：
+
+```
+grep -ac 52e4bf38fdaaa3b64daaaf7bdfcd219a541be980  libs/arm64-v8a/libapp.so    → 1   # release
+grep -ac 52e4bf38fdaaa3b64daaaf7bdfcd219a541be980  .../kernel_blob.bin         → 1   # debug
+```
+
+`52e4bf3…` 是 git 算出来的 commit，源码里没有这个字面量，所以查到 1 次就是 `--dart-define` 生效。鸿蒙包从此也带构建号，设置页「检查更新」在鸿蒙上理论可用（**没签名装不上真机，所以这句仍只是理论**）。
+
+### 16.4 顺手挖出来的一条：两个落点会互相覆盖
+
+以前文档写「release 不复制到 `build/ohos/hap/`，所以那躺着的是 debug，取产物别拿错」，暗示两条链的产物能共存。实测否掉：两条链在 `ohos/entry/build/default/outputs/default/` 用的是**同一个文件名** `entry-default-unsigned.hap`，本轮 debug 后跑，直接把 23:41 那份 release 就地覆盖了（两处现在都是 125,984,972）。要同时留两份，只能 release 跑完立刻改名收走 —— README 和 HANDOFF §0 都按这个改口径。
+
+### 16.5 修掉的文档自相矛盾
+
+- **README §9.4 的对照表和 REVIEW §9.4 打架**：README 的时笺列已随重跑更新，REVIEW §9.4 还停在 17,917,607。没去改写历史（那节记的是当轮实测），而是补一段 blockquote 说明「同机复跑后是 18,245,379，空壳 Demo 那列不受影响，差值 +2,742,137，结论不变」。
+- **「引擎 + Dart 机器码占 94%」这句分母不明**：17,203,752 对 APK 实际是 96%，94% 是对**未压缩总量**算的。改成明确写分母（现在是 17,531,432 / 18,596,066）。
+- **「为什么功能这么简单也要 17MB」** 标题跟着包体升到 18MB，正文「17.0 MB / 49MB fat / 174MB debug」同步成 17.4 / 50.1 / 174.6 MB。
+
+### 16.6 本轮数字与边界
+
+- 改动只有文档：`README.md` / `REVIEW.md` / `HANDOFF-OHOS.md`，**没有碰一行 `lib/` 或 `test/`**；`flutter analyze` 仍 `No issues found!`，全量 `flutter test` 本轮也重跑了一遍确认仍是 **202 例**（`pubspec.yaml` 的 `assets:` 只列 `quotes.json` 和 `alert.wav`，所以文档改动确实不进编译输入，重跑只是为了把数字拿在手里而不是靠推理）。
+- **没有重新发布**：GitHub 上 `dev-build` 与 `v1.0.0` 的附件仍是 run #14/#15 那一批，云端数字（arm64 18,237,326 等）不改；本轮新出的 18,245,379 只是本机产物，两者差在 keystore 与那台 Runner 的环境，**不能互相核对**。
+- 历史数字保留不动的有三处，都带轮次标签：REVIEW §9.6 的「本轮数字」、§9.8 截图装的那个 19,343,534 的 x86_64 包、HANDOFF 公开分发行里 run #10/#11 的取证。把它们改成今天的数就是造假。
+- 仍未验证的：真机点「检查更新」、鸿蒙真机运行（签名待用户）、动画观感。

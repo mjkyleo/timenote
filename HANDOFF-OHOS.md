@@ -1,26 +1,27 @@
 # 鸿蒙（HarmonyOS / OHOS）构建 —— 进度交接
 
-> 记录时间：2026-11-05 01:35 初版；09:55 更新（递归根因已定位并修好）；**11:20 更新（release HAP 出包 + 包内配置复验 + Android 模拟器真机冒烟 + 修掉横屏键盘压瘪弹窗，测试 62 → 64）**；**16:02 更新（CI run #10 真绿：android 13 步全 success、dev-build 5 个附件、`apk-sha256.txt` 4 行；顺带挖出 run #9 红叉的根因是 `gh release view --json prerelease` 字段名写错，正确叫 `isPrerelease`）**；**16:25 更新（run #11 复跑同样全绿、dev-build 那条 warning 注解消失 = 摘要日志推断已能打；并实测 `--clobber` 会换 asset id、同名附件字节相同但 sha256 每轮都变）**；**16:33 更新（run #11 的 arm64 包整份下载成功，sha256 与同一轮清单逐字相同 = 字节级完整性核对补上了；本机直链会被截，要走 assets API 断点续传，实测 8 轮）**。下面的每一条数字/路径都是当场跑出来的。
+> 记录时间：2026-11-05 01:35 初版；09:55 更新（递归根因已定位并修好）；**11:20 更新（release HAP 出包 + 包内配置复验 + Android 模拟器真机冒烟 + 修掉横屏键盘压瘪弹窗，测试 62 → 64）**；**16:02 更新（CI run #10 真绿：android 13 步全 success、dev-build 5 个附件、`apk-sha256.txt` 4 行；顺带挖出 run #9 红叉的根因是 `gh release view --json prerelease` 字段名写错，正确叫 `isPrerelease`）**；**16:25 更新（run #11 复跑同样全绿、dev-build 那条 warning 注解消失 = 摘要日志推断已能打；并实测 `--clobber` 会换 asset id、同名附件字节相同但 sha256 每轮都变）**；**16:33 更新（run #11 的 arm64 包整份下载成功，sha256 与同一轮清单逐字相同 = 字节级完整性核对补上了；本机直链会被截，要走 assets API 断点续传，实测 8 轮）**；**23:50 更新（第八/九轮代码之后本机 Android 与鸿蒙两条出包链全部重跑一遍，数字换到 `52e4bf3`：arm64 APK 18,245,379 / release HAP 23,093,027 / debug HAP 125,984,972；并实测 `tool/build_hap.sh` 那句新加的 `--dart-define=BUILD_SHA` 真的落进了包：release 的 `libapp.so` 与 debug 的 `kernel_blob.bin` 里各查到 1 次当前 commit）**。下面的每一条数字/路径都是当场跑出来的。
 
 ---
 
 ## 0. 一句话现状
 
-**`tool/build_hap.sh` 一键直出已打通，debug 与 `--release` 都跑过了**：动画重做后（2026-11-05 14:28–14:31）两条链路各复跑一次，debug 64.2 s / 125,814,260 B、release（AOT）107.2 s / 22,748,875 B，两次 `EXIT=0`。
+**`tool/build_hap.sh` 一键直出已打通，debug 与 `--release` 都跑过了**：第八/九轮代码之后（2026-11-05 23:41 / 23:43 两个产物时间戳，工作副本 `52e4bf3`，代码 == `947ecaf`）两条链路又各复跑一次，release（AOT）264.5 s / 23,093,027 B、debug 71.9 s / 125,984,972 B，两次 `EXIT=0`。这一轮还顺带验证了脚本里那句新增的 `--dart-define=BUILD_SHA`（此前从未跑过）：构建接受该参数并且 SHA 真的进了包（证据见下表「BUILD_SHA 进包」那一行）。
 剩下的不是构建问题，而是**签名**：`*-unsigned.hap` 装不上真机，调试证书要华为账号在 DevEco 里申请（见 §5 待办 6）。
 
 唯一的技术障碍（§3 的 `BATCH RECURSION exceeds STACK limits, Recursion Count=234`）根因是
 **`D:\flutter_ohos\bin\flutter` 这个 bash 启动器里的 `OS="$(uname -s)"` 污染了子进程树**，与参数长度、管道、shim 都无关。
 
-产物（已存在，勿删）—— **两条链路的落点不同，实测过**：debug 由工具复制到 `build/ohos/hap/`（日志里有 `√ Built build\ohos\hap\...`），release **不复制**，只留在 `ohos/entry/build/default/outputs/default/`（日志只打印签名提示）。所以 14:31 那次 release 之后，`build/ohos/hap/` 里躺着的仍是 14:28 的 debug 包（125,814,260 B），别把它当 release：
+产物（已存在，勿删）—— **两条链路的落点不同，实测过**：debug 由工具复制到 `build/ohos/hap/`（日志里有 `√ Built build\ohos\hap\...`），release **不复制**，只留在 `ohos/entry/build/default/outputs/default/`（日志只打印签名提示）。两个落点用的是**同一个文件名** `entry-default-unsigned.hap`，所以后跑的那条会覆盖前一条在该目录的产物：23:43 的 debug 复跑之后，`outputs/default/` 和 `build/ohos/hap/` 现在躺的是同一份 debug（都是 125,984,972 B，时间戳一致），release 那份 23,093,027 B 已被就地覆盖 —— 要同时留两份，得在 release 跑完立刻改名收走。
 
 | 项 | 实测值 |
 | --- | --- |
 | 路径 | debug：`build/ohos/hap/entry-default-unsigned.hap`（工具从 `ohos/entry/build/default/outputs/default/` 拷过来）；release：只有 `ohos/entry/build/default/outputs/default/entry-default-unsigned.hap`，`build/ohos/hap/` 不会被更新 |
-| 大小（release，当前） | 22,748,875 字节，包内 21 个文件（`unzip -l` 实测）；`libs/arm64-v8a/libapp.so` 5,325,744 B（AOT）+ `libflutter.so` 16,416,376 B、`ets/modules.abc` 725,136 B，**无 `kernel_blob.bin`**。⚠️ 路径：release 只落在 `ohos/entry/build/default/outputs/default/entry-default-unsigned.hap`，工具在 release 分支只打印「请通过 DevEco Studio…配置调试签名」，**不复制到 `build/ohos/hap/`、也不报 `√ Built`** —— 所以 `build/ohos/hap/` 里留的是上一次 debug 的 120 MB 包，取产物别拿错。 |
-| release 包是不是当前代码 | 字节数与动画重做前**恰好相同**（22,748,875 / `libapp.so` 5,325,744），看着像没重编，实测否掉了：`build/ohos/intermediates/flutter/defaultRelease/arm64-v8a/app.so` 的时间戳是本次构建的 14:29，`grep -ac` 在二进制里查到本轮新增的 `autoMix`（1 次）与 `_hingedLeaf`（1 次），而这两个符号在改动前的 `enum_def.dart` / `flip_renderer.dart` 里都不存在（`git diff` 里是 `+` 行）→ 确实是当前代码的 AOT，同大小是巧合。 |
-| 大小（debug） | 125,814,260 字节（≈120 MB，含 `kernel_blob.bin` 71,840,168 B + `libflutter.so` 38,896,320 B，24 个文件）—— 第三轮动画重做后复测，比上一版 +37,456 B（`kernel_blob` +38,256，其余是打包边距），`tool/build_hap.sh` 64.2 s `EXIT=0` |
-| 构建耗时 | 动画重做后复跑：debug 64.2 s / release 107.2 s（`tool/build_hap.sh [--release]`，全量重建；此前一轮是 60.7 s / 93.9 s） |
+| 大小（release，当前） | 23,093,027 字节（23:41，`52e4bf3`），包内 21 个文件、未压缩合计 23,089,777（`unzip -l` 实测）；`libs/arm64-v8a/libapp.so` 5,669,808 B（AOT，上一轮 5,325,744，+344,064 是这两轮新增的 Dart 代码）+ `libflutter.so` 16,416,376 B（逐字节没动）、`ets/modules.abc` 725,136 B（同样没动，ArkTS 层这轮没改），**无 `kernel_blob.bin`**。⚠️ 路径：release 只落在 `ohos/entry/build/default/outputs/default/entry-default-unsigned.hap`，工具在 release 分支只打印「请通过 DevEco Studio…配置调试签名」，**不复制到 `build/ohos/hap/`、也不报 `√ Built`**。 |
+| release 包是不是当前代码 | 这条以前要靠符号名反推（上一轮 release 和改动前**字节数恰好相同**，只能用 `libapp.so` 里查 `autoMix` / `_hingedLeaf` 来证明不是没重编）。这一轮不用推了：包大小本身变了（22,748,875 → 23,093,027），而且直接把本轮 `git rev-parse HEAD` 的完整 SHA 拿去 `grep -ac` —— 见下面「BUILD_SHA 进包」那一行。旧取证保留：`build/ohos/intermediates/flutter/defaultRelease/arm64-v8a/app.so` 时间戳 = 本次构建。 |
+| BUILD_SHA 进包 | `tool/build_hap.sh` 现在会给 `flutter build hap` 追加 `--dart-define=BUILD_SHA=$(git rev-parse HEAD)`（和 CI 出 APK 同口径，设置页「检查更新」在鸿蒙包里有得比）。这句加进去之后一直没实跑过，本轮补上：**release** 解包 `unzip -o` 后 `grep -ac 52e4bf38fdaaa3b64daaaf7bdfcd219a541be980 libs/arm64-v8a/libapp.so` = **1**；**debug** 解出 `resources/rawfile/flutter_assets/kernel_blob.bin` 同样 `grep -ac` = **1**。两次构建都 `EXIT=0`，脚本里没有别的改动。 |
+| 大小（debug） | 125,984,972 字节（23:43，`52e4bf3`；≈120 MB，24 个文件、未压缩合计 125,981,204），含 `kernel_blob.bin` 72,010,880 B（上一轮 71,840,168，+170,712）+ `libflutter.so` 38,896,320 B（没动）、`ets/modules.abc` 1,251,580 B（debug 版没压缩，比 release 的 725,136 大得多），`tool/build_hap.sh` 71.9 s `EXIT=0` |
+| 构建耗时 | 本轮：release 264.5 s（日志 23:41:37 收尾）/ debug 71.9 s（23:43:20）（`tool/build_hap.sh [--release]`；release 那轮慢是因为它撞上了 `pub get` 重新解析 11 个依赖 + hvigor 冷缓存，上一轮热缓存下是 107.2 s。此前一轮：debug 64.2 s / release 107.2 s） |
 | bundleName | `com.timenote.timenote`，versionName 1.0.0，`pack.info` 里 `"code":1` |
 | apiVersion | compatible 17 / target 26（`pack.info`），`runtimeOS HarmonyOS` |
 | deviceType | `["phone", "tablet"]`，ability `orientation: auto_rotation_landscape` —— **已在 release 重建后的包内复验**：`unzip -p ... module.json` 交出这两个值，`pack.info` 的 `deviceType` 同为 `["phone","tablet"]`（见 §5 待办 1） |
@@ -49,8 +50,8 @@
 `tool/ohos_env.sh` 是正本（Temp 里那份会被系统清理），单独手工跑 hvigor 时才需要手动 source；实测 `source` 后 `DEVECO_TOOLS_HOME` / `DEVECO_SDK_HOME` / `PUB_CACHE` 能正常传给 cmd。
 
 ```bash
-tool/build_hap.sh              # = flutter.bat build hap --debug --no-codesign
-tool/build_hap.sh --release    # AOT，产物 22,748,875 B，落在 ohos/entry/build/default/outputs/default/（debug 是 125,814,260 B，复制到 build/ohos/hap/）
+tool/build_hap.sh              # = flutter.bat build hap --debug --no-codesign --dart-define=BUILD_SHA=<HEAD>
+tool/build_hap.sh --release    # AOT，产物 23,093,027 B，落在 ohos/entry/build/default/outputs/default/（debug 是 125,984,972 B，另外复制一份到 build/ohos/hap/；同名文件，后跑的覆盖前跑的）
 ```
 
 里面 4 件事不能少：
@@ -207,7 +208,7 @@ RunCommandUtil.run(r, undefined, true)   // spawnSync(cmd, ["/d","/c", r], {wind
    - Android：`android/app/src/main/res/mipmap-{mdpi 48,hdpi 72,xhdpi 96,xxhdpi 144,xxxhdpi 192}/ic_launcher.png`（此前仓库里**一个 mipmap 都没有**，`AndroidManifest.xml` 的 `@mipmap/ic_launcher` 全靠 CI 现编占位图）
    - 鸿蒙：`ohos/entry/src/main/resources/base/media/icon.png`、`ohos/AppScope/resources/base/media/app_icon.png`（模板原图 144×144，保持同尺寸）
 4. [x] 递归问题：根因 = `bin/flutter` 污染 `OS`，见 §3。`tool/build_hap.sh` 一键直出 —— 本日实跑两次均 `EXIT=0`（debug、`--release`），不再有 `Recursion Count` 报错。
-5. [x] `--release` 构建（AOT）：`tool/build_hap.sh --release` → 107.2 s，`entry-default-unsigned.hap` 22,748,875 字节（对比 debug 125,814,260 字节）。包内换成了 `libs/arm64-v8a/libapp.so` 5,325,744 B + `libflutter.so` 16,416,376 B，`kernel_blob.bin` 不再存在，文件数 24 → 21。**动画重做后（14:29–14:31）复跑，`EXIT=0`，各项数字与复跑前一致**；同大小不代表没重编，符号级证据见上面「release 包是不是当前代码」那一行。
+5. [x] `--release` 构建（AOT）：`tool/build_hap.sh --release` → 264.5 s（23:41，工作副本 `52e4bf3`），`entry-default-unsigned.hap` 23,093,027 字节（对比 debug 125,984,972 字节）。包内换成了 `libs/arm64-v8a/libapp.so` 5,669,808 B + `libflutter.so` 16,416,376 B，`kernel_blob.bin` 不再存在，文件数 24 → 21。上一轮（14:29–14:31，当时工作树内容 == `cdceae9`，那批改动 14:50 才落成提交）的同一项是 107.2 s / 22,748,875 B / `libapp.so` 5,325,744 B，当时的「字节数恰好相同」靠符号名反推 —— 这一轮大小与 AOT 产物都随代码变了，且新增的 `--dart-define=BUILD_SHA` 在两种包里都查得到（见 §0「BUILD_SHA 进包」）。
    - ⚠️ 仍未做：release HAP 的**真机运行验证** —— 未签名包装不上去，这条要等华为调试证书（待办 6）。
 6. [ ] 签名边界（**诚实写进 README，不能假装能装**）：调试证书/Profile 需要华为账号登录 DevEco 申请；`signingConfigs: []` 出来的 `*-unsigned.hap` **装不上真机**。另外 `ohos/build-profile.json5` 第 4 行 `signingConfigs: []` 与第 8 行 `products[0].signingConfig: "default"` **名字对不上**（指向一个不存在的配置名）—— 实测这**不会**让构建失败（debug/release 两次都 `EXIT=0`，hvigor 只是不签），但配好签名时必须要在 `signingConfigs` 里补一个同名（`"default"`）条目。
    - 同一处顺带核对过：`compatibleSdkVersion "5.0.5(17)"` / `targetSdkVersion "26.0.0"` 与包内 `pack.info` 的 `apiVersion.compatible 17 / target 26` 一致。
@@ -257,6 +258,16 @@ RunCommandUtil.run(r, undefined, true)   // spawnSync(cmd, ["/d","/c", r], {wind
   - 作者与推送：`git -c user.name=Ky -c user.email=125885091+mjkyleo@users.noreply.github.com commit` → `git log -1` 交出 `Ky <125885091+mjkyleo@users.noreply.github.com>`（没触发 GH007）；SSH 443 推 → `cdceae9..e628133 main -> main`；`git ls-remote` 的 `refs/heads/main` = `e6281336fcc0876f0ab5c9a42651d5a4e290590d` = 本地 `git rev-parse main`。
   - ⚠️ 推送后要盯的轮询坑：`api.github.com` 连打 4 次就吃 403（二级限流，`/rate_limit` 当时还剩 47/60，说明不是配额而是频率），改成 45 秒一轮 + 落盘再 `node` 解析才稳定。
 - [x] 第五轮改动（字段名修复 + run #10 记录，**已提交并推送**）：提交 `94ddb91`「ci: 自检改回真实字段名 isPrerelease，并记录 run #10 实测」，`4 files changed, 57 insertions(+), 15 deletions(-)`（逐文件 +/−：workflow 5/4、HANDOFF 15/4、README 15/5、REVIEW 22/2）。作者 noreply（`git log -1 --pretty='%h %ae %an'` 交出 `94ddb91 Ky <125885091+mjkyleo@users.noreply.github.com>`），SSH 443 推 `e628133..94ddb91`，远端 ref = `94ddb913d081e1f95bb9eefbf8a266dfe42951ad` = 本地 `git rev-parse main`；暂存前照例 `git checkout -- ios` 清掉那 2 个 CRLF 假差异，暂存后 `git status --short | grep -vE "^[MA]  "` 为空。
+- [x] 第八轮（手动检查更新 R21）+ 第九轮（首个正式版 v1.0.0），**已提交并推送**：`947ecaf`「feat: 设置页手动「检查更新」+ 推 v* 标签发正式版 Release」（9 文件 `569/13`，作者 noreply 邮箱，SSH 443 推 `2c6d5f4..947ecaf`）与 `52e4bf3`（文档）。注解标签 `v1.0.0`（tag 对象 `9b9409f`，tagger 同邮箱）单独推送 `refs/tags/v1.0.0`，触发的 run #15 只跑 `release` 作业。取证细节见 REVIEW §十四 / §十五。
+  - ⚠️ **CRLF 假差异这次没还原、改成明确不入库**：`ios/Runner/GeneratedPluginRegistrant.{h,m}` 依旧 `git diff` 零 hunk，这次没跑 `git checkout -- ios`，所以它们仍留在工作区未暂存（`git status` 会一直显示 2 个 `M`）。下次提交前照例要么还原要么确认不带。
+  - ⚠️ **发版说明不要写在 workflow 里**：`run: |` 是块标量，缩进由第一行非空内容决定，正文里冒出列 0 的行会直接把 YAML 截断（实测 `yaml.safe_load` 报 `could not find expected ':'`）。现在正文放仓库根 `RELEASE-NOTES.md`，CI 只做 `cat`。
+  - 本机取证工具：这台机器没有 `gh`、没有 `python`（只有 `py` 启动器 + PyYAML），`py` 里写 `/tmp` 会按 Windows 路径解析而 `FileNotFoundError`。校验三连：`py` 解析 YAML → 取出 `run` 脚本落盘 → `bash -n`。
+
+- [x] 第十轮（文档校准，2026-11-05 23:20–23:5x）：用户说「这次改动比较大，说明文档好像有点落后了」，于是把文档里每条数字对着当前代码/当前产物重测一遍。**鸿蒙两条链在 `52e4bf3` 各复跑一次**：release 264.5 s / 23,093,027 B、debug 71.9 s / 125,984,972 B，两次 `EXIT=0`；Android 五个包同时重出（arm64 18,245,379 / v7a 15,648,349 / x86_64 19,736,842 / fat 52,538,042 / debug 183,056,489）。逐项对账与增量拆解见 REVIEW §十六。
+  - ✅ **补验了第九轮那句没跑过的 `--dart-define=BUILD_SHA`**：release 解包 `grep -ac <40位SHA> libs/arm64-v8a/libapp.so` = 1、debug 对 `kernel_blob.bin` 同样 = 1，鸿蒙包确认带构建号（装不上真机，所以「App 里能用」仍只是理论）。
+  - ⚠️ **两条链的产物会同名互盖**：`ohos/entry/build/default/outputs/default/entry-default-unsigned.hap` 是 debug 与 release 共用的输出路径，本轮 debug 后跑，release 那份 23 MB 被就地覆盖 —— 以前文档写的「release 不复制到 `build/ohos/hap/`，两处各留一份」并不成立，现在 §0 改成「要同时留两份就在 release 跑完先改名」。
+  - 本轮改动仍只有文档（`README.md` / `REVIEW.md` / `HANDOFF-OHOS.md`），`flutter analyze` = `No issues found!`（79.7 s）、全量 `flutter test` = `+202: All tests passed!`；`pubspec.yaml` 的 `assets:` 只声明 `quotes.json` + `alert.wav`，所以文档确实不进编译输入。
+
 - [x] 当前工作树（2026-11-05 第三轮改动，**已提交并推送**）：提交 `cdceae9`「feat: 翻页动画重做（8 种·绕中缝铰链）+ 沉浸式待机，鸿蒙工程入库」，`59 files changed, 2188 insertions(+), 275 deletions(-)`。
   - 提交前实测：`git status --short` = 17 `M` + 9 `??`；`ios/Runner/GeneratedPluginRegistrant.{h,m}` 这 2 个 CRLF 假差异在 `git add` 前用 `git checkout -- ios` 还原（依据：`git diff --stat --ignore-cr-at-eol -- ios` 零行 stat，只吐 warning），所以最终提交是 **15 个 M + 44 个新文件 = 59**，与 `git diff --cached --name-only | wc -l` 一致；暂存后 `git status --short | grep -vE "^[MA]  "` 为空，确认没漏也没多。
   - 入库前扫过密钥：对**将要 add 的 44 个文件**（不是整个目录，`ohos/entry/build/**` 的缓存不在内）`grep -niE "password|secret|token|BEGIN (RSA|OPENSSH)|api[_-]?key"`，只有 `assets/icon/*.png` 因二进制字节撞词命中，`ohos/build-profile.json5` 是 `"signingConfigs": []` 空数组，无凭据。⚠️ `tool/ohos_env.sh` 里有本机路径（含 Windows 用户名 `86132` 与盘符），是设计如此（当作「仓库内正本」），不是泄露。
@@ -275,7 +286,7 @@ RunCommandUtil.run(r, undefined, true)   // spawnSync(cmd, ["/d","/c", r], {wind
 | --- | --- |
 | 构建命令 | `D:\dev\flutter\bin\flutter.bat build apk --debug` / `--release`（标准 SDK，3.47.8） |
 | 产物目录 | `build/app/outputs/flutter-apk/`（每个 apk 旁边都有 `.sha1`） |
-| 公开分发 | **已真实验证（run #11，`94ddb91`）**：`dev-build` 由 CI 更新，**5 个附件全在** —— `app-arm64-v8a-release.apk` 17,909,554 / `app-armeabi-v7a-release.apk` 15,263,372 / `app-x86_64-release.apk` 19,335,481 / `app-release.apk` 51,432,169 / `apk-sha256.txt` 357 字节（4 行，通用包已在内，run #9 那份是 275 字节 3 行）。run #11 的 android job 13 步全 `success`，「更新公开预发布 dev-build」6 秒过，annotations 只剩 GitHub 自己的 2 条 boilerplate。清单形式核过：4 行、每行 `^[0-9a-f]{64}␣␣文件名$`、文件名集合 == 该轮 4 个 APK。✅ **字节级核对做完了**：run #11 的 arm64 包整份下回来 `sha256sum` = `357d9e82c16bf069ff24ba6d49190a4b1f7c79f3cf682348fa7c831eb6bbe14d`，与**同一轮**清单第一行逐字相同，`wc -c` = 17,909,554，头尾是合法 ZIP（`504b0304` / EOCD `504b0506`）。通道：`api.github.com/repos/mjkyleo/timenote/releases/assets/{id}` + `Accept: application/octet-stream` + `curl -sL -C -`，实测 **8 轮**才凑满（4,297,408 → 4,635,979 → 5,995,851 → 7,552,331 → 13,491,520 → 13,988,569 → 16,036,569 → 17,909,554，单轮 130 秒上限）。⚠️ 判读规则：第 5 轮差 4.4 MB 时 `sha256sum` 是 `7593332f…`，与清单不同 —— 那是**本地截断**不是云端被换；`releases/download/...` 直链同理会停在 3,134,272 而 `-w` 仍报 HTTP=200。**先看大小再看哈希**。⚠️ **每次 run 的 sha256 都不同**（run #10 的 arm64 是 `9e03d469cb66…`，run #11 是 `357d9e82c16b…`，字节数却一模一样）：Runner 每轮现生成 `~/.android/debug.keystore`，签名块变长不变 —— sha256 只能核「同一轮附件 == 同一轮清单」，不能当版本标识；本机 arm64 是 17,917,607，也别拿本机哈希去对云端。判断装了哪次提交看 `dev-build` 正文首行的「最新提交：`xxxxxxx`」（实测 run #10=`e628133`、run #11=`94ddb91`）。⚠️ 且 `gh release upload --clobber` 是删了重建，asset id 每轮换（arm64 `712511360`→`712600392`）。⚠️ 但**旧 id 不会下载失败**（实测对着 run #10 的 id 一路续到 15,251,947 都没报错），真正的危险是**错配**：旧 id 的字节 == 上一轮的产物，拿这轮的清单去核必然「哈希不符」，会误判成发布被人动过。核对前重新取一次 `releases/tags/dev-build`，让 id 与清单同属一轮。 |
+| 公开分发 | **当前状态（2026-11-05 第八轮，run #14 + run #15，head `947ecaf`）**：`dev-build` 已是 **6 个附件**（新增 `dev-build-sha.txt`，41 字节 = 那一轮 `$GITHUB_SHA`，实测 == 本地 `git rev-parse HEAD`），并且多了一条**正式版通道**：推 `v*` 标签由 `release` 作业单独构建，`v1.0.0` 已发布（`prerelease=false`、`draft=false`、`/releases/latest` 返回它，5 附件；arm64 18,237,326）。两个作业用 `if` 互斥，标签推送不会覆盖 `dev-build`（实测 #14 skip `release`、#15 skip `android`）。**同一提交两轮构建：字节数完全相同、sha256 全不同**（#14 arm64 `69145927…` vs #15 `855a0688…`），所以跨版本覆盖安装会被签名拒（`INSTALL_FAILED_UPDATE_INCOMPATIBLE`），发布说明已写「先卸载再装」；同轮互证可以只看 API 在 asset 上给的 `digest` 与 `apk-sha256.txt` 是否逐字相同，不必下载 100MB。以下保留 run #11 那次的原始取证 —— **已真实验证（run #11，`94ddb91`）**：`dev-build` 由 CI 更新，**5 个附件全在** —— `app-arm64-v8a-release.apk` 17,909,554 / `app-armeabi-v7a-release.apk` 15,263,372 / `app-x86_64-release.apk` 19,335,481 / `app-release.apk` 51,432,169 / `apk-sha256.txt` 357 字节（4 行，通用包已在内，run #9 那份是 275 字节 3 行）。run #11 的 android job 13 步全 `success`，「更新公开预发布 dev-build」6 秒过，annotations 只剩 GitHub 自己的 2 条 boilerplate。清单形式核过：4 行、每行 `^[0-9a-f]{64}␣␣文件名$`、文件名集合 == 该轮 4 个 APK。✅ **字节级核对做完了**：run #11 的 arm64 包整份下回来 `sha256sum` = `357d9e82c16bf069ff24ba6d49190a4b1f7c79f3cf682348fa7c831eb6bbe14d`，与**同一轮**清单第一行逐字相同，`wc -c` = 17,909,554，头尾是合法 ZIP（`504b0304` / EOCD `504b0506`）。通道：`api.github.com/repos/mjkyleo/timenote/releases/assets/{id}` + `Accept: application/octet-stream` + `curl -sL -C -`，实测 **8 轮**才凑满（4,297,408 → 4,635,979 → 5,995,851 → 7,552,331 → 13,491,520 → 13,988,569 → 16,036,569 → 17,909,554，单轮 130 秒上限）。⚠️ 判读规则：第 5 轮差 4.4 MB 时 `sha256sum` 是 `7593332f…`，与清单不同 —— 那是**本地截断**不是云端被换；`releases/download/...` 直链同理会停在 3,134,272 而 `-w` 仍报 HTTP=200。**先看大小再看哈希**。⚠️ **每次 run 的 sha256 都不同**（run #10 的 arm64 是 `9e03d469cb66…`，run #11 是 `357d9e82c16b…`，字节数却一模一样）：Runner 每轮现生成 `~/.android/debug.keystore`，签名块变长不变 —— sha256 只能核「同一轮附件 == 同一轮清单」，不能当版本标识；本机 arm64 是 17,917,607，也别拿本机哈希去对云端。判断装了哪次提交看 `dev-build` 正文首行的「最新提交：`xxxxxxx`」（实测 run #10=`e628133`、run #11=`94ddb91`）。⚠️ 且 `gh release upload --clobber` 是删了重建，asset id 每轮换（arm64 `712511360`→`712600392`）。⚠️ 但**旧 id 不会下载失败**（实测对着 run #10 的 id 一路续到 15,251,947 都没报错），真正的危险是**错配**：旧 id 的字节 == 上一轮的产物，拿这轮的清单去核必然「哈希不符」，会误判成发布被人动过。核对前重新取一次 `releases/tags/dev-build`，让 id 与清单同属一轮。 |
 | 签名 | Release 用 debug keystore，能装能自用，不能上 Google Play |
 
 本次重建（2026-11-05 11:10–11:12，已含 §6.6 的弹窗修复）实测大小：
@@ -348,12 +359,12 @@ await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
 
 ```bash
 cd /d/Phase3/Projects/timenote
-ls -la ohos/entry/build/default/outputs/default/         # release 未签名 HAP = 22,748,875 B（当前代码，14:30）
-ls -la build/ohos/hap/                                   # debug 未签名 HAP = 125,814,260 B（当前代码，14:28）；release 不会覆盖这里
+ls -la ohos/entry/build/default/outputs/default/         # 当前是 23:43 的 debug = 125,984,972 B（release 那份 23,093,027 B 已被同名覆盖，见 §0）
+ls -la build/ohos/hap/                                   # debug 未签名 HAP = 125,984,972 B（`52e4bf3`，23:43）；release 不会写这里
 md5sum /e/command-line-tools/ohpm/bin/ohpm.bat           # 应为 3481f1c9ec50a2e05fa4ad42ca6b8dc6（探针已还原）
 ls /e/command-line-tools/ohpm/bin/                       # 只该有 init init.bat ohpm ohpm.bat pm-cli.js，无 probe/real
 tool/build_hap.sh 2>&1 | tail -4                         # 应 √ Built build\ohos\hap\entry-default-unsigned.hap.
-ls -la build/app/outputs/flutter-apk/                     # 5 个 apk，arm64-v8a-release = 17,852,071 B
+ls -la build/app/outputs/flutter-apk/                     # 5 个 apk，arm64-v8a-release = 18,245,379 B（`52e4bf3` 本机 23:32 重出）
 ```
 
 **别再用 `flutter build hap`（bash 启动器）验证递归** —— 那条路必然复现 `Recursion Count=234`，是 `OS` 污染，不是回归。

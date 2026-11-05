@@ -2,6 +2,8 @@
 
 > 平板离线翻页时钟 · 专注计时 + 待办 + 倒计时彩蛋
 
+**下载**：最新正式版 [v1.0.0](https://github.com/mjkyleo/timenote/releases/tag/v1.0.0)（Android 平板直接装 `app-arm64-v8a-release.apk`）；跟 main 走的自测版是常驻的 [dev-build](https://github.com/mjkyleo/timenote/releases/tag/dev-build)（每次推 main 自动覆盖）。两个入口都是公开直链，免登录、不过期。
+
 一款面向 **Android 平板 / 华为鸿蒙平板 / iPad** 的纯离线时间管理 App。灵感来自 Fliqlo 式待机翻页时钟，保持极简：**翻页时钟 + 待办抽屉**，倒计时结束会随机给出一句文案陪你继续。
 
 ## ✨ 功能
@@ -106,13 +108,16 @@ flutter test      # 202 tests passed
 
 202 例只管「形态对不对」；翻页铰链、倒计时中按钮隐去、横屏手机设置分栏这三件事另外在模拟器上逐条截图看过（AVD `trace_pixel7`，1080×2400@420dpi → 横屏逻辑 914×411，装本轮 x86_64 release 包）。图证、启动参数与「软渲染帧率不代表真机」这条限制见 [REVIEW.md](./REVIEW.md) §9.8。**动画观感与进度组件好不好看要人眼判**，24 种动画 + 8 种进度组件的实机效果由用户在 dev-build 直链上自测。
 
-三个可注入的测试缝让「测过」这件事真的成立：
+四个可注入的测试缝让「测过」这件事真的成立：
 
 | 依赖 | 生产 | 测试 |
 | --- | --- | --- |
 | 时间 | `DateTime.now` | `clockSourceProvider` 覆盖 + `fakeAsync`；实时时钟与倒计时共用这一个缝 |
 | 屏幕常亮 | wakelock_plus 平台通道 | `wakelockPlusPlatformInstance` 换 fake |
 | 存储 | Hive 磁盘后端 | widget 测试用 Hive 内存后端；真实落盘由普通 `test()` 覆盖 |
+| 网络（检查更新） | `HttpClient` 取 `dev-build-sha.txt` | `latestShaFetcherProvider` 覆盖 + `checkForUpdate(..., localSha:)`（`buildSha` 是编译期常量，测试进程里恒为空）；真实抓取那两例对 `127.0.0.1` 现起的 `HttpServer` 发请求，并在 `setUp` 里临时 `HttpOverrides.global = null` —— 不这么做的话 `flutter_test` 的假 `HttpClient` 一律回 400 |
+
+> 剪贴板那条不算「缝」但同样要处理：这个 SDK 的 `flutter_test` **不 mock** `Clipboard.setData`，`await` 下去永不完成，按钮会卡在「检查中…」且用例只表现为超时。做法是 `setMockMethodCallHandler(SystemChannels.platform, …)`，顺便把 `MethodCall` 捕获下来断言复制的到底是发布页而不是那条 `.txt`。
 
 > 提示音在 widget 测试里固定关闭：audioplayers 6 需要「资源 → 临时文件」的真实 IO，在 fake-async 区无法等待。因此「彩蛋先于提示音上屏」目前只有源码结构保证，未自动化覆盖（详见 [REVIEW.md](./REVIEW.md) 第五节）。
 
@@ -121,9 +126,11 @@ flutter test      # 202 tests passed
 鸿蒙要用 Flutter-OH 的 SDK（标准 Flutter 没有 `ohos` 目标），命令收在 `tool/build_hap.sh`：
 
 ```bash
-tool/build_hap.sh            # 默认 --debug --no-codesign，动画重做后复测：64.2 s → 125,814,260 字节（+37,456）
-tool/build_hap.sh --release  # AOT，复测：107.2 s → 22,748,875 字节（`libapp.so` 5,325,744 B，无 kernel_blob）
+tool/build_hap.sh            # 默认 --debug --no-codesign；`52e4bf3` 复测：71.9 s → 125,984,972 字节
+tool/build_hap.sh --release  # AOT，复测：264.5 s → 23,093,027 字节（`libapp.so` 5,669,808 B，无 kernel_blob）
 ```
+
+两条命令都会自动把当前 commit 用 `--dart-define=BUILD_SHA=$(git rev-parse HEAD)` 注进包，和 CI 出 APK 同一口径 —— 解包 `grep` 那个 40 位 SHA，release 的 `libapp.so`、debug 的 `kernel_blob.bin` 里各出现 1 次，所以鸿蒙包里「检查更新」也有得比。
 
 脚本里三件事是有原因的，别手工替换成 `flutter build hap`：
 
@@ -131,43 +138,45 @@ tool/build_hap.sh --release  # AOT，复测：107.2 s → 22,748,875 字节（`l
 2. 构建期把 `tool/pubspec_overrides.ohos.yaml` 复制成 `pubspec_overrides.yaml`（已 gitignore），结束后删掉 —— audioplayers 的鸿蒙适配版用了 `TargetPlatform.ohos`，标准 SDK（含 CI）编译不过，所以覆盖只能在鸿蒙链路上注入。
 3. `tool/ohos_env.sh` 负责 `DEVECO_SDK_HOME` / `PUB_CACHE` 同盘 / `.exe` shim 那套本机环境。
 
-产物是**未签名**的 `entry-default-unsigned.hap`，装不上真机；签名要在 DevEco Studio 里用华为账号生成调试证书。⚠️ 取产物别拿错文件：debug 会被复制到 `build/ohos/hap/`，`--release` 只落在 `ohos/entry/build/default/outputs/default/`（release 分支工具只打印签名提示，不复制也不报 `√ Built`，所以 `build/ohos/hap/` 里可能还躺着上一次 debug 的 120 MB 包）。完整进度与坑见 [HANDOFF-OHOS.md](./HANDOFF-OHOS.md)。
+产物是**未签名**的 `entry-default-unsigned.hap`，装不上真机；签名要在 DevEco Studio 里用华为账号生成调试证书。⚠️ 取产物别拿错文件：debug 会被复制到 `build/ohos/hap/`，`--release` 只落在 `ohos/entry/build/default/outputs/default/`（release 分支工具只打印签名提示，不复制也不报 `√ Built`）。两个落点**文件名相同**，后跑的覆盖前跑的 —— 本轮 debug 在后，所以现在两处都是那一份 125,984,972 B 的 debug，要同时留两份得在 release 跑完先改名。完整进度与坑见 [HANDOFF-OHOS.md](./HANDOFF-OHOS.md)。
 
 ## 📱 本机出包（Android）
 
 ```bash
-D:\dev\flutter\bin\flutter.bat build apk --release   # → build/app/outputs/flutter-apk/
+# 想让本机的包也能用「检查更新」，就要把构建号注进去（不注会显示「本地构建，比不了」）
+D:\dev\flutter\bin\flutter.bat build apk --release --split-per-abi \
+  --dart-define=BUILD_SHA=$(git rev-parse HEAD)   # → build/app/outputs/flutter-apk/
 ```
 
-实测大小（2026-11-05 本机重新出包，含全部 ABI 拆分）：`app-arm64-v8a-release.apk` 17,917,607 / `app-armeabi-v7a-release.apk` 15,255,041 / `app-x86_64-release.apk` 19,343,534 / `app-release.apk`（fat，三个 ABI 全带）51,423,838 / `app-debug.apk` 182,984,197 字节。
+实测大小（2026-11-05 23:32–23:35 在本机 `52e4bf3` 重新出包，含全部 ABI 拆分）：`app-arm64-v8a-release.apk` 18,245,379 / `app-armeabi-v7a-release.apk` 15,648,349 / `app-x86_64-release.apk` 19,736,842 / `app-release.apk`（fat，三个 ABI 全带）52,538,042 / `app-debug.apk` 183,056,489 字节。
 
-**为什么「功能这么简单」也要 17MB？** 把 arm64 那个包拆开看（`unzip -l build/app/outputs/flutter-apk/app-arm64-v8a-release.apk`，未压缩字节，合计 18,268,158 / 66 个文件）：
+**为什么「功能这么简单」也要 18MB？** 把 arm64 那个包拆开看（`unzip -l build/app/outputs/flutter-apk/app-arm64-v8a-release.apk`，未压缩字节合计 18,596,066 / 66 个文件）：
 
 | 条目 | 字节 | 是什么 |
 | --- | --- | --- |
 | `lib/arm64-v8a/libflutter.so` | 11,763,360 | Flutter 引擎本体。任何 Flutter App 都带这一份，跟你写了几个功能无关 |
-| `lib/arm64-v8a/libapp.so` | 5,440,392 | AOT 编译出来的 Dart 机器码：自己的代码 + riverpod / hive / wakelock_plus / audioplayers 的 Dart 侧 |
+| `lib/arm64-v8a/libapp.so` | 5,768,072 | AOT 编译出来的 Dart 机器码：自己的代码 + riverpod / hive / wakelock_plus / audioplayers 的 Dart 侧 |
 | `classes.dex` | 573,424 | 插件的 Android 侧 Java/Kotlin 胶水 |
 | `lib/arm64-v8a/libdartjni.so` | 131,400 | Dart ↔ Java 桥 |
 | `assets/flutter_assets/NOTICES.Z` | 111,200 | 开源许可清单，Flutter 强制打包 |
 | `assets/flutter_assets/assets/data/quotes.json` + `assets/audio/alert.wav` | 27,867 + 30,912 | **这款 App 自己塞进去的全部内容**（520 条文案 + 一段提示音） |
 
-引擎 + Dart 机器码 = 17,203,752 字节，占 94%；自己的素材 58,779 字节，占 0.3%。
+引擎 + Dart 机器码 = 17,531,432 字节，占未压缩总量（18,596,066）的 94%；自己的素材 58,779 字节，占 0.3%。
 
 拿一个同版本 SDK 出的**空壳 Flutter Demo**（`flutter create` 后原样 `build apk --release --split-per-abi`）对照，同样的 arm64 release：
 
 | | 空壳 Demo | 时笺 | 差值 |
 | --- | --- | --- | --- |
-| APK | 15,503,242 | 17,917,607 | +2,414,365 |
+| APK | 15,503,242 | 18,245,379 | +2,742,137 |
 | `libflutter.so`（引擎） | 11,763,360 | 11,763,360 | **0**（逐字节相同） |
-| `libapp.so`（Dart AOT） | 3,212,168 | 5,440,392 | +2,228,224 |
+| `libapp.so`（Dart AOT） | 3,212,168 | 5,768,072 | +2,555,904 |
 | `classes.dex` | 520,160 | 573,424 | +53,264 |
 | `NOTICES.Z` | 98,182 | 111,200 | +13,018 |
-| 图标字体合计 | 258,996（含 Demo 自带的 `CupertinoIcons.ttf` 257,628） | 2,352（tree-shake 后的 `MaterialIcons`，从 1,645,184 压到 99.9%↓） | −256,644 |
+| 图标字体合计 | 258,996（含 Demo 自带的 `CupertinoIcons.ttf` 257,628） | 2,440（tree-shake 后的 `MaterialIcons`，从 1,645,184 压到 99.9%↓） | −256,556 |
 
-结论：17MB 里 11.8MB 是 Flutter 引擎的固定成本（空壳也要），2.2MB 是 4 个插件 + 自己全部 Dart 代码的 AOT 产物，素材 5.9 万字节 —— 体积不是「功能做大了」，是框架底价。
+结论：18MB 里 11.8MB 是 Flutter 引擎的固定成本（空壳也要），2.5MB 是 4 个插件 + 自己全部 Dart 代码的 AOT 产物，素材 5.9 万字节 —— 体积不是「功能做大了」，是框架底价。
 
-真正能省的是**装对包**：平板装 `app-arm64-v8a-release.apk`（17.0 MB），别装 49MB 的 fat 包，`app-debug.apk`（174MB，带 JIT 与全部 ABI）只用于开发。要走 Google Play 就得改发 AAB，由商店按设备下发单 ABI + 资源压缩，用户侧还能再小一截。换掉 `audioplayers` 之类的减重没做：插件的原生胶水在 dex 里，实测拆不出单独归属，收益是几十 KB 量级，不值得为它牺牲提示音。依赖清单本身也没有赘肉 —— `pubspec.yaml` 的 6 个非鸿蒙依赖逐个用 `grep -rl "package:<依赖>/"` 查过 `lib/`，全部真被 import（riverpod 8 个文件、hive/hive_flutter 与 wakelock_plus/audioplayers 各 1 个），没有可以「删了就直接小一点」的死依赖。
+真正能省的是**装对包**：平板装 `app-arm64-v8a-release.apk`（17.4 MB），别装 50.1 MB 的 fat 包，`app-debug.apk`（174.6 MB，带 JIT 与全部 ABI）只用于开发。要走 Google Play 就得改发 AAB，由商店按设备下发单 ABI + 资源压缩，用户侧还能再小一截。换掉 `audioplayers` 之类的减重没做：插件的原生胶水在 dex 里，实测拆不出单独归属，收益是几十 KB 量级，不值得为它牺牲提示音。依赖清单本身也没有赘肉 —— `pubspec.yaml` 的 6 个非鸿蒙依赖逐个用 `grep -rl "package:<依赖>/"` 查过 `lib/`，全部真被 import（riverpod 9 个文件、hive/hive_flutter 与 wakelock_plus/audioplayers 各 1 个），没有可以「删了就直接小一点」的死依赖。
 
 这两条是**本机 `~/.gradle` 的前置，不在仓库里**，换机器要照做（否则分别卡在依赖下载和 Kotlin 增量缓存，见 HANDOFF 坑 I / 坑 J）：
 
@@ -212,7 +221,7 @@ git tag -a v1.0.0 -m "..." && git push --follow-tags   # 另发一条正式版 R
 - ✅ run #9 那句拖红的打印**已修且已生效**：现在包在 `if summary=$(… 2>&1)` 里，失败时发一行 `::warning::` annotation（值先 `tr '\r\n' '  '` 压单行、再 `sed 's/%/%25/g'`），第 10 步 5 秒 `success`。选 annotation 而不是丢日志，是因为日志下载接口要 admin 权限（实测 403），`/check-runs/{id}/annotations` 免登录就能读。
 - ✅ **顺带把 run #9 的根因挖了出来**：那条 annotation 把 gh 的原文带出来了 —— `Unknown JSON field: "prerelease" … Available fields: … isPrerelease …`。所以不是打印玄学失败，是 `--json` 字段名写错，gh 的字段叫 `isPrerelease`。改对之后 **run #11（head `94ddb91`）android 13 步全 `success`**（构建 APK 289 秒、发布步 6 秒），annotations 只剩 GitHub 自己的 2 条 boilerplate，dev-build 那条 warning 不再出现 —— 两个分支必走其一，没 warning 就等于摘要日志打出来了。日志正文要 admin 才能下载（实测 403），所以「摘要长什么样」属于推断，没亲眼看过。
 - ✅ `apk-sha256.txt` 从 275 字节 3 行变成 357 字节 4 行。根因不是笔误而是 glob：`app-*-release.apk` 匹配不到 `app-release.apk`（`app-` 之后还要一个字面的 `-release.apk`，`*` 匹配空也只凑得出 `app--release.apk`）—— 本机 `touch` 出 5 个 apk 跑 `ls` 实测过，现在改成逐个点名。Artifacts 也同步确认：`timenote-release-apk` 从 24,897,396 涨到 48,773,766 字节（接近翻倍，与 3 包→4 包的比例一致）。
-- ⚠️ **同一个包每轮构建的 sha256 都不同**：run #10 的 arm64 是 `9e03d469cb66…`，run #11 是 `357d9e82c16b…`，而字节数完全一样（17,909,554）。原因是 debug keystore 在 Runner 上每轮现生成，签名块变长不变 —— 所以 sha256 只能用来核对「**同一次 run** 的附件 == 同一次 run 的清单」，不能当版本标识、也不能跨轮比较。要确认装上去的是哪次提交，看 `dev-build` 正文首行的「最新提交：`xxxxxxx`」（实测 run #10=`e628133`、run #11=`94ddb91`）。同理别拿本机 arm64（17,917,607）去核对云端附件。
+- ⚠️ **同一个包每轮构建的 sha256 都不同**：run #10 的 arm64 是 `9e03d469cb66…`，run #11 是 `357d9e82c16b…`，而字节数完全一样（17,909,554）。原因是 debug keystore 在 Runner 上每轮现生成，签名块变长不变 —— 所以 sha256 只能用来核对「**同一次 run** 的附件 == 同一次 run 的清单」，不能当版本标识、也不能跨轮比较。要确认装上去的是哪次提交，看 `dev-build` 正文首行的「最新提交：`xxxxxxx`」（实测 run #10=`e628133`、run #11=`94ddb91`）。同理别拿本机的 arm64（当前 HEAD 实测 18,245,379）去核对云端附件。
 - ✅ **字节级核过一遍**：run #11 的 `app-arm64-v8a-release.apk` 整份下回来 `sha256sum` = `357d9e82c16b…`，与**同一轮** `apk-sha256.txt` 第一行逐字相同，`wc -c` = 17,909,554，文件头尾也是合法 ZIP（`504b0304` + `504b0506`）。下载只能走 `api.github.com/.../releases/assets/{id}` + `Accept: application/octet-stream` + `curl -sL -C -` 断点续传（实测 8 轮才凑满，单轮增量 0.34 MB～5.9 MB 都不等）；`releases/download/...` 直链在本机停在 3,134,272 字节而 `-w` 仍报 HTTP=200，所以**别信状态码，要比字节数**。
 - ⚠️ `gh release upload --clobber` 是删了重建附件，asset id 每轮换（arm64 `712511360`→`712600392`）。旧 id 并不会下载失败，坏在**错配**：拿上一轮的字节核这一轮的清单，会得到「哈希被改」的假信号 —— 下之前重新取一次 `releases/tags/dev-build`。
 
@@ -276,9 +285,12 @@ git tag -a v1.0.0 -m "..." && git push --follow-tags   # 另发一条正式版 R
 
 - [x] 连设备验证常亮 / 横屏 / 提示音 / 倒计时与抽屉 —— Android 模拟器（Pixel 7 AVD）已逐项目视 + `dumpsys` 验过，详见 [HANDOFF-OHOS.md](./HANDOFF-OHOS.md) §6.6；顺带抓出并修掉一个只有真机才暴露的缺陷（横屏软键盘把自定义倒计时弹窗压瘪，输入框整块不可见），补了 2 条回归测试。**待补**：实体平板 + 华为鸿蒙真机。
   - ⚠️ 边缘滑动开抽屉没单独实测（点按钮 `openEndDrawer()` 那条路径验过，滑动本身是 Scaffold 自带）。
-- [ ] 下载并打包 5 款免费商用字体
+- [ ] 下载并打包 5 款免费商用字体（= 需求 R14：数字字体子集化，中文字体不动）
+- [x] **首个正式版已发布**：`v1.0.0`（2026-11-05，run #15 的 `release` 作业 9 步全绿，非预发布且 `--latest`）。以后发版 = 打 `v*` 注解标签再推，CI 单独构建；日常自测仍走 `dev-build` 那条（6 个附件）。
+- [x] **设置页「手动检查更新」**（需求 R21）已上线：按下才发一次请求，比对 `dev-build-sha.txt`（实测内容与那一轮 `$GITHUB_SHA` 逐字相同），不自动下载。⚠️ 真机上按那一次的效果还没由用户确认过。
+- [ ] 还在排期的需求（编号来自需求清单，逐条待用户点头）：R2 页面居中、R3 三块色差、R4 横/竖排向三选、R6 显示单位勾选、R9 待办增强（分类/到期/优先级）、R10 纪念日倒计时与到点提醒（要新增通知依赖，鸿蒙与 Android 不是一套）、R15 整页排版参考。R7 电流/水流特效与 R8「待办写不进去」由用户明确暂缓。
 - [x] 定下 `gradle-wrapper.jar` 与图标是否纳入版本库 —— 图标 5 个 dpi 已入库；wrapper 决定**不入库**，改为删掉 CI 的下载步骤（Flutter 自己会注入，已按干净检出实测），少一个 `raw.githubusercontent.com` 依赖。
-- [ ] 华为鸿蒙（Flutter-OH）适配：**已打通本机出包，debug 与 `--release` 都跑过，翻页动画重做后又各复跑一次（两次 `EXIT=0`）** —— `tool/build_hap.sh` 一键出未签名 HAP（AOT release 22,748,875 字节），平板/横屏声明、「时笺」文案、图标已入库并在包内复验。剩下的只有签名（要华为账号在 DevEco 申请调试证书）与装到真机上的运行验证。细节、复现命令与待办见 [HANDOFF-OHOS.md](./HANDOFF-OHOS.md)
+- [ ] 华为鸿蒙（Flutter-OH）适配：**已打通本机出包，debug 与 `--release` 都跑过，第八/九轮（检查更新 + 正式版通道）之后又在 `52e4bf3` 各复跑一次（两次 `EXIT=0`）** —— `tool/build_hap.sh` 一键出未签名 HAP（AOT release 23,093,027 字节，debug 125,984,972 字节），平板/横屏声明、「时笺」文案、图标已入库并在包内复验，`--dart-define=BUILD_SHA` 也确认落进了两种包。剩下的只有签名（要华为账号在 DevEco 申请调试证书）与装到真机上的运行验证。细节、复现命令与待办见 [HANDOFF-OHOS.md](./HANDOFF-OHOS.md)
 - [ ] iOS 签名与上架
 
 ## 📄 License
