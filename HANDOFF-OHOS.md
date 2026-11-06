@@ -1,6 +1,6 @@
 # 鸿蒙（HarmonyOS / OHOS）构建 —— 进度交接
 
-> 记录时间：2026-11-05 01:35 初版；09:55 更新（递归根因已定位并修好）；**11:20 更新（release HAP 出包 + 包内配置复验 + Android 模拟器真机冒烟 + 修掉横屏键盘压瘪弹窗，测试 62 → 64）**；**16:02 更新（CI run #10 真绿：android 13 步全 success、dev-build 5 个附件、`apk-sha256.txt` 4 行；顺带挖出 run #9 红叉的根因是 `gh release view --json prerelease` 字段名写错，正确叫 `isPrerelease`）**；**16:25 更新（run #11 复跑同样全绿、dev-build 那条 warning 注解消失 = 摘要日志推断已能打；并实测 `--clobber` 会换 asset id、同名附件字节相同但 sha256 每轮都变）**；**16:33 更新（run #11 的 arm64 包整份下载成功，sha256 与同一轮清单逐字相同 = 字节级完整性核对补上了；本机直链会被截，要走 assets API 断点续传，实测 8 轮）**；**23:50 更新（第八/九轮代码之后本机 Android 与鸿蒙两条出包链全部重跑一遍，数字换到 `52e4bf3`：arm64 APK 18,245,379 / release HAP 23,093,027 / debug HAP 125,984,972；并实测 `tool/build_hap.sh` 那句新加的 `--dart-define=BUILD_SHA` 真的落进了包：release 的 `libapp.so` 与 debug 的 `kernel_blob.bin` 里各查到 1 次当前 commit）**；**03:0x 更新（run #17 把 dev-build 传成 4 个附件的残缺已修好：CI 改成「上传 + 点名核对 + 最多 3 轮重试」，`b771a10` 推上去触发 run #18 `success`，6 个附件同源同一轮）**。下面的每一条数字/路径都是当场跑出来的。
+> 记录时间：2026-11-05 01:35 初版；09:55 更新（递归根因已定位并修好）；**11:20 更新（release HAP 出包 + 包内配置复验 + Android 模拟器真机冒烟 + 修掉横屏键盘压瘪弹窗，测试 62 → 64）**；**16:02 更新（CI run #10 真绿：android 13 步全 success、dev-build 5 个附件、`apk-sha256.txt` 4 行；顺带挖出 run #9 红叉的根因是 `gh release view --json prerelease` 字段名写错，正确叫 `isPrerelease`）**；**16:25 更新（run #11 复跑同样全绿、dev-build 那条 warning 注解消失 = 摘要日志推断已能打；并实测 `--clobber` 会换 asset id、同名附件字节相同但 sha256 每轮都变）**；**16:33 更新（run #11 的 arm64 包整份下载成功，sha256 与同一轮清单逐字相同 = 字节级完整性核对补上了；本机直链会被截，要走 assets API 断点续传，实测 8 轮）**；**23:50 更新（第八/九轮代码之后本机 Android 与鸿蒙两条出包链全部重跑一遍，数字换到 `52e4bf3`：arm64 APK 18,245,379 / release HAP 23,093,027 / debug HAP 125,984,972；并实测 `tool/build_hap.sh` 那句新加的 `--dart-define=BUILD_SHA` 真的落进了包：release 的 `libapp.so` 与 debug 的 `kernel_blob.bin` 里各查到 1 次当前 commit）**；**03:0x 更新（run #17 把 dev-build 传成 4 个附件的残缺已修好：CI 改成「上传 + 点名核对 + 最多 3 轮重试」，`b771a10` 推上去触发 run #18 `success`，6 个附件同源同一轮）**；**14:01 更新（第十二轮 R4：不再强制横屏，新增开始页与横/竖二选，测试 209 → 214，版本 `1.2.0+3`；`module.json5:24` 的 orientation 改成 `auto_rotation`，本轮 HAP 与 APK 都没重出包，见 §5 待办 1 的追加）**。下面的每一条数字/路径都是当场跑出来的。
 
 ---
 
@@ -24,7 +24,7 @@
 | 构建耗时 | 本轮：release 264.5 s（日志 23:41:37 收尾）/ debug 71.9 s（23:43:20）（`tool/build_hap.sh [--release]`；release 那轮慢是因为它撞上了 `pub get` 重新解析 11 个依赖 + hvigor 冷缓存，上一轮热缓存下是 107.2 s。此前一轮：debug 64.2 s / release 107.2 s） |
 | bundleName | `com.timenote.timenote`，versionName 1.0.0，`pack.info` 里 `"code":1` |
 | apiVersion | compatible 17 / target 26（`pack.info`），`runtimeOS HarmonyOS` |
-| deviceType | `["phone", "tablet"]`，ability `orientation: auto_rotation_landscape` —— **已在 release 重建后的包内复验**：`unzip -p ... module.json` 交出这两个值，`pack.info` 的 `deviceType` 同为 `["phone","tablet"]`（见 §5 待办 1） |
+| deviceType | `["phone", "tablet"]`，ability `orientation: auto_rotation_landscape` —— **已在 release 重建后的包内复验**：`unzip -p ... module.json` 交出这两个值，`pack.info` 的 `deviceType` 同为 `["phone","tablet"]`（见 §5 待办 1）。⚠️ 第十二轮（R4）起源码已是 `auto_rotation`（`module.json5:24`），这一行的包内值属于 2026-11-05 那次重建（见 §5 待办 1），本轮未重新出包 |
 | 图标 | 包内 `resources/base/media/{icon,app_icon}.png` 各 21,357 B，144×144 RGBA（源图 `assets/icon/timenote-launcher-icon-1024.png` 经 `tool/make_icons.py` 缩出） |
 | 资源 | 包内 `resources/rawfile/flutter_assets/` 有 `assets/data/quotes.json` 27,867 B、`assets/audio/alert.wav` 30,912 B、`NOTICES.Z`、2 个 shader —— 彩蛋文案与提示音确实入包 |
 | 签名 | 无（`build-profile.json5` 里 `signingConfigs: []`，产物是 `*-unsigned.hap`，`SignHap` 任务 3 ms 空跑） |
@@ -193,7 +193,7 @@ RunCommandUtil.run(r, undefined, true)   // spawnSync(cmd, ["/d","/c", r], {wind
   ⚠️ 只能改 URL，不能 `repos.maven { ... }` 新增仓库 —— 会撞工程 `settings.gradle.kts` 的 `repositoriesMode` 校验，报 `Build was configured to prefer settings repositories over project repositories but repository 'maven' was added by settings file`。实测换源后 3m45s 走完依赖。
 - **坑 J｜中途 kill 掉的 Gradle 构建会留下损坏的 Kotlin 增量缓存**：下次构建报 `Could not close incremental caches in build\<plugin>\kotlin\compileDebugKotlin\cacheable\caches-jvm\jvm\kotlin: *.tab`（`package_info_plus`、`audioplayers_android` 两个任务各炸一次），异常链末端是 `IllegalStateException: Storage for [...class-fq-name-to-source.tab] is already registered`。
   ⚠️ **`flutter clean` 没用**（实测：clean、`gradlew --stop`、taskkill 掉 Kotlin daemon 16632、把可用内存从 2.2 GB 腾到 7.4 GB、`--max-workers=1 --no-parallel` 四种都试过，全部照炸）。真正的解法是**关掉 Kotlin 增量编译**：`C:\Users\86132\.gradle\gradle.properties`（此前不存在，本次新建）里写 `kotlin.incremental=false`，之后 38.3 s 正常出包。代价是 Kotlin 每次全量编译，换来的是不再卡死。
-- **坑 K｜`adb shell input tap` 用的是横屏（旋转后）坐标**：App 在 `lib/main.dart:15` 锁了横屏，屏幕物理是 1080x2400 但 `screencap` 出 2400x1080，`input tap 2000 500` 能命中右上角齿轮 —— 说明注入坐标就是横屏那套。按截图估坐标时别按竖屏换算。
+- **坑 K｜`adb shell input tap` 用的是横屏（旋转后）坐标**：App 在 `lib/main.dart:15` 锁了横屏，屏幕物理是 1080x2400 但 `screencap` 出 2400x1080，`input tap 2000 500` 能命中右上角齿轮 —— 说明注入坐标就是横屏那套。按截图估坐标时别按竖屏换算。（`lib/main.dart:15` 是当时那一版的行号；第十二轮（R4）起启动不再锁向，方向由开始页选、进时钟才下发，见 §5 待办 1。）
 - **坑 L｜`gh release upload --clobber` 不是原子的**：同名附件是**先删干净、再逐个上传**（这个顺序由 run #17 的现场反推，见 REVIEW §17.1），中途任何一次失败都会让**已经删掉的那几个永久缺件**。run #17 实测：删 `app-armeabi-v7a-release.apk`（asset `713954948`）时 GitHub 回 `HTTP 500`，`set -e` 让整步退出，此前已删的 arm64 与 x86_64 没机会传回来。判据不看红叉、看 `releases/tags/dev-build` 的 asset 名字列表；本轮已在 CI 里改成「上传 → 点名核对 6 个附件 → 缺则 20 秒后整轮重来，最多 3 次」。
 
 
@@ -201,8 +201,9 @@ RunCommandUtil.run(r, undefined, true)   // spawnSync(cmd, ["/d","/c", r], {wind
 
 ## 5. 待办清单（鸿蒙部分，按优先级）
 
-1. [x] `ohos/entry/src/main/module.json5`：`deviceTypes` → `["phone", "tablet"]`；ability 加 `"orientation": "auto_rotation_landscape"`（2026-11-05 改）。合法值已从 SDK schema `toolchains/modulecheck/module.json` 核对：`unspecified / landscape / portrait / follow_recent / landscape_inverted / portrait_inverted / auto_rotation / auto_rotation_landscape / auto_rotation_portrait / … / locked / auto_rotation_unspecified / follow_desktop`。App 本身在 `lib/main.dart:15` 已用 `SystemChrome.setPreferredOrientations` 锁横屏，两边一致。
+1. [x] `ohos/entry/src/main/module.json5`：`deviceTypes` → `["phone", "tablet"]`；ability 加 `"orientation": "auto_rotation_landscape"`（2026-11-05 改）。合法值已从 SDK schema `toolchains/modulecheck/module.json` 核对：`unspecified / landscape / portrait / follow_recent / landscape_inverted / portrait_inverted / auto_rotation / auto_rotation_landscape / auto_rotation_portrait / … / locked / auto_rotation_unspecified / follow_desktop`。App 本身当时（2026-11-05）在 `lib/main.dart:15` 已用 `SystemChrome.setPreferredOrientations` 锁横屏，两边一致。
    - ✅ 已在 2026-11-05 重建后的包内复验：`unzip -p build/ohos/hap/entry-default-unsigned.hap module.json` 交出 `"orientation":"auto_rotation_landscape"`，`pack.info` 的 `deviceType` 是 `["phone","tablet"]`（`packages[0].deviceType` 同值）。
+   - ⚠️ 【2026-11-06 第十二轮（R4）】这一条的「两边一致」已经作废：`lib/main.dart` 不再锁方向（现在是开始页问一次横/竖，点「开始」后由 `lib/flip_clock/clock_view.dart:46` 下发），`ohos/entry/src/main/module.json5:24` 也相应从 `"auto_rotation_landscape"` 改成 `"auto_rotation"`，让运行时的 `setPreferredOrientations` 说了算。embedder 侧的换算读过源码：`PlatformChannel.ets:473-476` 收 `SystemChrome.setPreferredOrientations` → `decodeOrientations`（`:71`）按位或，横屏两档（`0x08|0x02=0x0a`）落到 `AUTO_ROTATION_LANDSCAPE`（`:115`）、竖屏两档（`0x01|0x04=0x05`）落到 `AUTO_ROTATION_PORTRAIT`（`:108`），最后 `PlatformPlugin.ets:240-243` 调 `mainWindow.setPreferredOrientation`。**这轮没重新出包**，上面那条包内复验要重跑 `tool/build_hap.sh --release` 再 `unzip -p ... module.json` 才算数。
 2. [x] 文案：`EntryAbility_label` / `EntryAbility_desc` / `module_desc` → 「时笺」，`AppScope/.../string.json` 的 `app_name` → 「时笺」，`vendor` `example` → `mjkyleo`。与 Android 的 `android:label="时笺"`、`applicationId="com.timenote.timenote"` 对齐。
    - `versionCode` 疑点已核实：`AppScope/app.json5` 写 `1000000`，`pack.info` 里是 `"code":1`（等于 pubspec `1.0.0+1` 的 build 号）→ **hvigor 没按 app.json5 取值**，版本以 pubspec 为准。2026-11-05 重建后复验仍是 `"code":1`，没被改回。
 3. [x] 图标：源图从 `vibe_images/` 挪进仓库并改名 `assets/icon/timenote-launcher-icon-1024.png`（1024×1024 RGB，777,354 字节，深板岩底 + 琥珀翻页板；`assets/icon` 没写进 pubspec 的 `assets:`，不会打进包）。生成脚本收进 **`tool/make_icons.py`**（`py tool/make_icons.py`，Python 3.11.9 + Pillow 12.2.0），实测重跑产出 md5 稳定：
@@ -216,7 +217,7 @@ RunCommandUtil.run(r, undefined, true)   // spawnSync(cmd, ["/d","/c", r], {wind
 7. [x] 回归：主 flutter（`D:\dev\flutter`，3.47.8）`flutter analyze` → `No issues found! (ran in 9.9s)`（分析缓存已热；冷缓存那次是 71.8 s），`flutter test` → **64 例全绿**（`00:20 +64: All tests passed!`）。前提是把 audioplayers 的 git 覆盖挪出 `pubspec.yaml`（§3.5），否则编译直接失败。
 8. [x] README 鸿蒙章节：见 README.md「🖥 本机出包（鸿蒙）」—— 命令、`OS` 污染根因、覆盖注入、`tool/ohos_env.sh`、未签名边界、CI 拿不到鸿蒙工具链的原因都写了，平台表里鸿蒙那行标成「本机能出包，云端出不了」。**每条数字都用命令实测过**（本节 §0/§5 就是实测记录）。
    - 待办 8 剩下的只有 §7 的**提交推送**（需用户授权）与待办 6 的签名。
-9. [ ] **新默认底色「跟随系统」在鸿蒙上有没有真信号**（第十一轮 HIG 改造带来，见 REVIEW.md §18.3）：`lib/main.dart:62` 把 `ThemeBase.system` 翻成 `ThemeMode.system`，暗色与否取决于引擎向 `platformDispatcher` 回传的平台亮度。Android 侧这条走标准通道、无需担心。**鸿蒙侧源码查过了，通道是通的**（2026-11-06 在 `D:\flutter_ohos\engine\src\flutter\shell\platform\ohos\flutter_embedding\flutter\src\main\ets` 逐行读过，行号以下均为该目录内相对行号）：
+9. [ ] **新默认底色「跟随系统」在鸿蒙上有没有真信号**（第十一轮 HIG 改造带来，见 REVIEW.md §18.3）：`lib/main.dart:55` 把 `ThemeBase.system` 翻成 `ThemeMode.system`，暗色与否取决于引擎向 `platformDispatcher` 回传的平台亮度。Android 侧这条走标准通道、无需担心。**鸿蒙侧源码查过了，通道是通的**（2026-11-06 在 `D:\flutter_ohos\engine\src\flutter\shell\platform\ohos\flutter_embedding\flutter\src\main\ets` 逐行读过，行号以下均为该目录内相对行号）：
    - 冷启动：`view/FlutterView.ets:999` 与 `:1104` 都调 `sendSettings()` → `:1114` → `embedding/ohos/Settings.ets:35`，其中 `:40` `.setPlatformBrightness(this.getThemeMode(mediaQuery))`；`getThemeMode`（`Settings.ets:50-60`）用 `mediaQuery.matchMediaSync('(dark-mode: true)')` 判暗色。
    - 热启动/系统设置中途改动：`embedding/ohos/FlutterAbility.ets:519` `onConfigurationUpdate(config)` → `:525` 按 `config.colorMode != COLOR_MODE_DARK` 落 LIGHT/DARK；`embedding/ohos/FlutterEntry.ets:106` `onConfigurationUpdated` → `:112` 同一套（这两处还顺带 `setTextScaleFactor(config.fontSizeScale)`，即系统字号缩放也是通的）。
    - 落到线上：`embedding/engine/systemchannels/SettingsChannel.ets:29` `const PLATFORM_BRIGHTNESS = "platformBrightness"`，`:123` `setPlatformBrightness()` 写进 settings 消息（`:124`）。
@@ -341,7 +342,7 @@ RunCommandUtil.run(r, undefined, true)   // spawnSync(cmd, ["/d","/c", r], {wind
 
 冒烟时从截图里看到的第二个真机问题：**状态栏一直在**（`i02_countdown_started.png` 左上角 `3:05`、右上角 `LTE` + 电量，底部还有手势条），而这是个 Fliqlo 式待机翻页时钟，状态栏直接破坏整屏观感。
 
-改法只有一行，在 `lib/main.dart:15` 的锁横屏之后：
+改法只有一行，当时写在 `lib/main.dart:15` 的锁横屏之后（第十二轮（R4）起这两句都搬进了 `lib/flip_clock/clock_view.dart` 的 `initState`：排向在 `:46`，沉浸是 `:50`）：
 
 ```dart
 await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
@@ -352,7 +353,7 @@ await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
 模拟器实测（`k01`–`k11` 一串截图）：
 - 状态栏与手势条消失，数字占满整屏（`k03_after_gotit.png`）。
 - Android 首次进入会弹系统提示「Viewing full screen / To exit, swipe down from the top of your screen」，点掉之后不再出现（`k01`/`k02` 抓到）。
-- 应用自己的 chrome（齿轮 + 菜单）仍按 6 s 自动隐藏，**点屏幕任意处重新唤出**（`Listener.onPointerDown → _pokeChrome`，`clock_view.dart:169`），唤出后齿轮位置随 `SafeArea` 上移到真正的顶边（`k04`）。
+- 应用自己的 chrome（齿轮 + 菜单）仍按 6 s 自动隐藏，**点屏幕任意处重新唤出**（`Listener.onPointerDown → _pokeChrome`，`clock_view.dart:206`），唤出后齿轮位置随 `SafeArea` 上移到真正的顶边（`k04`）。
 - 设置页在沉浸式下正常打开、布局无异常（`k06`）；返回键仍能把路由弹回主屏（`k07`）。
 - 自定义倒计时弹窗端到端复测：打开时不弹键盘（`k09`）→ 点输入框弹键盘，弹窗滚动后输入框与「取消/开始」都可见（`k10`，`scrollable: true` 起作用，15/30/45/60 需要滚一下才看到）→ 输入 `25` 点「开始」真的起表（`k11`，`00:24:58`）。
 

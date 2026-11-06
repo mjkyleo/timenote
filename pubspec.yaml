@@ -1,6 +1,6 @@
 name: timenote
 description: "时笺 TimeNote - 平板离线翻页时钟，专注计时 + 待办抽屉 + 倒计时彩蛋"
-version: 1.1.0+2
+version: 1.2.0+3
 publish_to: none
 
 environment:

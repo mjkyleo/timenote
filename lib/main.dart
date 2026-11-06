@@ -1,22 +1,16 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'core/constants.dart';
 import 'core/egg_service.dart';
 import 'core/providers/app_providers.dart';
 import 'core/storage_service.dart';
 import 'settings/enum_def.dart';
+import 'start/start_view.dart';
 import 'theme/ui_style.dart';
-import 'flip_clock/clock_view.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // 平板横屏优先
-  await SystemChrome.setPreferredOrientations(AppConstants.landscapeOrientations);
-  // 待机翻页时钟：状态栏与导航条会毁掉整屏观感（模拟器实测可见 3:05 / LTE / 电量）。
-  // immersiveSticky = 边缘滑动临时唤回后自动再隐藏；鸿蒙侧 flutter_ohos 的
-  // PlatformPlugin.setSystemChromeEnabledSystemUIMode 显式实现了这个模式，不是空调用。
-  await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+  // 方向和沉浸都不在这里定：第一屏是开始页，它得跟着系统转、状态栏也在，
+  // 用户按下「开始」以后才由 ClockView 接管（见 flip_clock/clock_view.dart）。
   try {
     await StorageService.init();
   } catch (error) {
@@ -74,7 +68,8 @@ class TimeNoteApp extends ConsumerWidget {
           child: child ?? const SizedBox.shrink(),
         );
       },
-      home: const ClockView(),
+      // 第一屏是开始页：它负责问一次「横还是竖」，时钟页才是真正的主角
+      home: const StartView(),
     );
   }
 }

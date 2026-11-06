@@ -5,11 +5,22 @@ import '../settings/enum_def.dart';
 class AppConstants {
   const AppConstants._();
 
-  /// 全应用锁定横屏（平板待机时钟场景）
+  /// 横屏两档：开始页选「横屏」或默认值时锁到这里（平板待机时钟的原始观感）
   static const List<DeviceOrientation> landscapeOrientations = [
     DeviceOrientation.landscapeLeft,
     DeviceOrientation.landscapeRight,
   ];
+
+  /// 竖屏两档：开始页选「竖屏」时锁到这里
+  static const List<DeviceOrientation> portraitOrientations = [
+    DeviceOrientation.portraitUp,
+    DeviceOrientation.portraitDown,
+  ];
+
+  static List<DeviceOrientation> orientationsOf(AppOrientation o) =>
+      o == AppOrientation.portrait
+          ? portraitOrientations
+          : landscapeOrientations;
 
   /// 倒计时快捷预设（分钟）
   static const List<int> countdownPresets = [5, 10, 25, 45];

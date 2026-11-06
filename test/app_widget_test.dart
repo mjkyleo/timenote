@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:timenote/core/providers/app_providers.dart';
@@ -15,9 +16,11 @@ import 'package:timenote/progress_decor/progress_decor.dart';
 import 'package:timenote/settings/enum_def.dart';
 import 'package:timenote/settings/settings_page.dart';
 import 'package:timenote/settings/style_picker.dart';
+import 'package:timenote/start/start_view.dart';
 
 import 'support/fake_storage.dart';
 import 'support/fake_wakelock.dart';
+import 'support/pass_start.dart';
 
 /// 应用级回归测试：抽屉真的滑入、待办真的进列表并写进 box、常亮即时生效、
 /// 倒计时归零的彩蛋/停止/暂停行为正确。
@@ -49,6 +52,8 @@ void main() {
 
   tearDown(() async {
     container.dispose();
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, null);
     await releaseMemoryStorage();
   });
 
@@ -66,6 +71,7 @@ void main() {
       ),
     );
     await pumpFrames(tester, 3, const Duration(milliseconds: 50));
+    await passStartScreen(tester);
   }
 
   /// 同时推进注入的时间源与测试帧，让倒计时按预期的秒数走
@@ -100,6 +106,7 @@ void main() {
 
   /// 点底部胶囊按钮：命中的是 ActionChip 整体，点文字中心会触发 hit-test 警告
   Future<void> tapChip(WidgetTester tester, String label) async {
+    await wakeChrome(tester);
     await tester.tap(find.ancestor(
       of: find.text(label),
       matching: find.byType(ActionChip),
@@ -118,6 +125,137 @@ void main() {
     container.read(clockNotifierProvider.notifier).stopCountdown();
     await pumpFrames(tester, 2, const Duration(milliseconds: 50));
   }
+
+  /// `SystemChrome` 的两个调用在测试环境是无声的，装上 mock 才看得到真实参数。
+  /// 参数按 Flutter 源码的线上格式收：方向是 `_stringify` 出来的
+  /// `['DeviceOrientation.landscapeLeft', ...]`，沉浸是 `'SystemUiMode.immersiveSticky'`，
+  /// 这里统一削成末段，断言写的就是 `AppConstants` 里那两档的顺序。
+  final List<Object?> orientationCalls = <Object?>[];
+  final List<Object?> uiModeCalls = <Object?>[];
+
+  void recordSystemChrome() {
+    orientationCalls.clear();
+    uiModeCalls.clear();
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      if (call.method == 'SystemChrome.setPreferredOrientations') {
+        orientationCalls.add([
+          for (final raw in call.arguments as List<Object?>)
+            raw.toString().split('.').last
+        ]);
+      } else if (call.method == 'SystemChrome.setEnabledSystemUIMode') {
+        uiModeCalls.add(call.arguments.toString().split('.').last);
+      }
+      return null;
+    });
+  }
+
+  group('开始页与排向', () {
+    /// 第一屏不能直接进时钟，所以这一组自己 pump，不复用 [pumpApp]
+    Future<void> pumpStart(WidgetTester tester) async {
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const TimeNoteApp(),
+        ),
+      );
+      await pumpFrames(tester, 3, const Duration(milliseconds: 50));
+    }
+
+    testWidgets('第一屏是开始页：默认横屏，还没锁方向也没进沉浸', (tester) async {
+      recordSystemChrome();
+      await pumpStart(tester);
+
+      expect(find.byType(StartView), findsOneWidget);
+      expect(find.text('开始'), findsOneWidget);
+      expect(find.byType(ClockTimeDisplay), findsNothing,
+          reason: '方向还没定就先画时钟，等于回到强制横屏');
+      expect(settings().orientation, AppOrientation.landscape,
+          reason: 'R4 默认横屏：平板待机的原始观感不能被顺手改掉');
+      expect(orientationCalls, isEmpty, reason: '开始页就锁方向等于又强制了一次');
+      expect(uiModeCalls, isEmpty, reason: '沉浸是时钟页的事，开始页还得用系统栏');
+    });
+
+    testWidgets('点「开始」才锁横屏两档，同时进沉浸', (tester) async {
+      recordSystemChrome();
+      await pumpStart(tester);
+
+      await tester.tap(find.text('开始'));
+      await pumpFrames(tester, 12, const Duration(milliseconds: 60));
+
+      expect(find.byType(StartView), findsNothing,
+          reason: '开始页该被替换掉：返回键要退出 App，不该退回这一页');
+      expect(find.byType(ClockTimeDisplay), findsOneWidget);
+      expect(orientationCalls.last, ['landscapeLeft', 'landscapeRight']);
+      expect(uiModeCalls, contains('immersiveSticky'));
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('选竖屏：当场下发竖屏两档，并且落盘', (tester) async {
+      recordSystemChrome();
+      await pumpStart(tester);
+
+      await tester.tap(find.text('竖屏'));
+      await pumpFrames(tester, 3, const Duration(milliseconds: 50));
+
+      expect(orientationCalls.last, ['portraitUp', 'portraitDown'],
+          reason: '选了不反应会让人以为没按上');
+      expect(StorageService.getSetting('screenOrientation', 'landscape'),
+          'portrait',
+          reason: '只在当次会话生效等于没存，下次打开又回横屏');
+
+      container.dispose();
+      container = ProviderContainer(
+        overrides: [clockSourceProvider.overrideWithValue(() => fakeNow)],
+      );
+      await pumpApp(tester);
+      expect(settings().orientation, AppOrientation.portrait);
+      expect(orientationCalls.last, ['portraitUp', 'portraitDown']);
+    });
+
+    testWidgets('时钟页里改排向立刻生效，不必退回开始页', (tester) async {
+      recordSystemChrome();
+      await pumpApp(tester);
+      await openSettings(tester);
+      final options = find.descendant(
+          of: find.byType(SettingsPage), matching: find.byType(Scrollable));
+      await tester.scrollUntilVisible(find.textContaining('屏幕排向'), 160,
+          scrollable: options);
+      await tester.ensureVisible(find.text('竖屏'));
+      await pumpFrames(tester, 2, const Duration(milliseconds: 50));
+
+      await tester.tap(find.text('竖屏'));
+      await pumpFrames(tester, 4, const Duration(milliseconds: 50));
+
+      expect(orientationCalls.last, ['portraitUp', 'portraitDown'],
+          reason: '设置页改了要等下次启动才转，等于骗人');
+      expect(settings().orientation, AppOrientation.portrait);
+    });
+
+    testWidgets('竖屏 390×844：开始页、时钟、抽屉、设置页都不溢出', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(390, 844));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await pumpApp(tester);
+      expect(find.byType(ClockTimeDisplay), findsOneWidget);
+      expect(tester.takeException(), isNull, reason: '竖屏是这一版新支持的，先钉住');
+
+      await openDrawer(tester);
+      final drawer = tester.getRect(find.byType(Drawer));
+      expect(drawer.width, lessThan(390), reason: '抽屉盖满整屏就没有「还能点回去」的缝了');
+      expect(tester.takeException(), isNull);
+
+      // 抽屉还开着时右上角那颗在抽屉底下，先按那条缝把它关掉再进设置
+      await tester.tapAt(const Offset(10, 400));
+      await pumpFrames(tester, 8, const Duration(milliseconds: 60));
+      expect(find.byType(Drawer), findsNothing);
+
+      await tester.tap(find.byIcon(Icons.settings));
+      await pumpFrames(tester, 10, const Duration(milliseconds: 60));
+      expect(find.byType(SettingsPage), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  });
 
   group('主屏', () {
     testWidgets('展示 HH:MM:SS 翻页数字', (tester) async {

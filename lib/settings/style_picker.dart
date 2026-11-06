@@ -318,3 +318,12 @@ String plateFrameName(PlateFrame f) {
       return '粗外框';
   }
 }
+
+String appOrientationName(AppOrientation o) {
+  switch (o) {
+    case AppOrientation.landscape:
+      return '横屏';
+    case AppOrientation.portrait:
+      return '竖屏';
+  }
+}

@@ -23,7 +23,7 @@
 
 - 证据：`git show 7abb6fd:lib/flip_clock/clock_view.dart | grep -n '\[n'` → `205: if (clockState.workMode == ClockWorkMode.countdown) ...[n   const SizedBox(width: 10),`
 - 影响：整个 app 无法编译，「暂停/继续/停止」三个按钮所在的 `if` 列表写法被写坏（`...[n`）。
-- 处置：主屏控制区重写为 `_controls()` + `_chip()` 列表（`lib/flip_clock/clock_view.dart:319`、`:398`）。
+- 处置：主屏控制区重写为 `_controls()` + `_chip()` 列表（`lib/flip_clock/clock_view.dart:359`、`:438`）。
 
 ### R2 · P0：`pubspec.yaml` 声明了不存在的资源
 
@@ -62,7 +62,7 @@
 
 - 证据：`git show 7abb6fd:lib/flip_clock/clock_view.dart:77-96` → `await _audioPlayer.play(...)` 在 `setState(egg)` 之前；隐藏用的是 `Future.delayed(...)`，没有 `Timer` 句柄，既不能取消也不在 `dispose` 里清理。
 - 影响：音频链路（平台通道 + 资源解码）慢或卡住时，视觉反馈跟着延迟；提前点掉彩蛋后，旧的 delayed 回调仍会在 5 秒后回来改状态。
-- 处置：彩蛋先上屏，再尽力播提示音（`AudioPlayer` 懒创建，失败静默降级）；隐藏改用可取消的 `Timer`（`lib/flip_clock/clock_view.dart:91`，`dispose` 里 `:67-68` 一并取消）。
+- 处置：彩蛋先上屏，再尽力播提示音（`AudioPlayer` 懒创建，失败静默降级）；隐藏改用可取消的 `Timer`（`lib/flip_clock/clock_view.dart:142`，`dispose` 里 `:79` 一并取消）。
 - 未自动化覆盖，见第五节边界说明。
 
 ### R8 · P2：`keepScreenOn` 关掉后不生效，要重启
@@ -193,7 +193,7 @@ classic 的两版令牌没有任何底板装饰（`hasPlateDecor == false`），
 
 ### 9.2 沉浸式待机：一处定义，按钮与入口一起退场
 
-原先只有右上角两个 `IconButton` 被自动隐藏逻辑管着，底部倒计时胶囊不在其中——所以「点了开始之后屏幕上还是一排按钮」。现在 `_chrome()` 这个包装函数同时套在底部控件层和右上角入口上（`lib/flip_clock/clock_view.dart:99`）：淡出 250ms，同时 `IgnorePointer` 挡住误触，点屏幕任意处由最外层 `Listener` 唤回并重新计时 6 秒。**进度条不藏**——它是「还在计时」的唯一凭据，按钮才是噪声。
+原先只有右上角两个 `IconButton` 被自动隐藏逻辑管着，底部倒计时胶囊不在其中——所以「点了开始之后屏幕上还是一排按钮」。现在 `_chrome()` 这个包装函数同时套在底部控件层和右上角入口上（`lib/flip_clock/clock_view.dart:127`）：淡出 250ms，同时 `IgnorePointer` 挡住误触，点屏幕任意处由最外层 `Listener` 唤回并重新计时 6 秒。**进度条不藏**——它是「还在计时」的唯一凭据，按钮才是噪声。
 
 ### 9.3 设置页分栏（那条没具体说的「布局不合理」）
 
@@ -376,7 +376,7 @@ isPrerelease name publishedAt tagName tarballUrl targetCommitish uploadUrl url z
 
 ### 11.2 三条约定落在哪
 
-- 分发点在 `_ClockViewState._onCountdownFinished(next.total)`（`lib/flip_clock/clock_view.dart:106`），**没有下沉进 `ClockNotifier`**：notifier 只管走时，「归零之后屏幕怎么表现」属于界面；复用的还是上一轮那条 `justFinished` 钩子，`prev.remainTime > 0 && next.remainTime == 0`。
+- 分发点在 `_ClockViewState._onCountdownFinished(next.total)`（`lib/flip_clock/clock_view.dart:65`），**没有下沉进 `ClockNotifier`**：notifier 只管走时，「归零之后屏幕怎么表现」属于界面；复用的还是上一轮那条 `justFinished` 钩子，`prev.remainTime > 0 && next.remainTime == 0`。
 - 「自动重开用上一次选的时长」= 直接拿这一轮的 `ClockState.total`，不是任何预设默认值。用例特意起一个 **3 秒**的表——既不在快捷预设 5/10/25/45 里，也不在弹窗快捷键 15/30/45/60 里，所以只要 `total` 取错就一定露馅；并且第二轮也得照常归零再重开，以及**点停止就是真停**（`stopCountdown` 之后不再被自动重开拉回倒计时）。
 - 停留档额外钉了一条「归零后再等 6 秒仍然显示 `00:00:00`」——防止彩蛋那条超时切回的路径偷偷跑起来。
 - 外框档**只覆盖描边**：`resolvePlateFrame(frame, tokens)` 返回 `(Color?, double)` 记录（`lib/flip_clock/flip_card_widget.dart:155`），底板填充/圆角/光影仍归界面风格令牌。所以「去掉外框」不会顺手把软胶拟物的双影也去掉；风格没自带描边色时取 `fg.withValues(alpha: 0.42)`，不在黑底上画一条生硬的原色线。
@@ -472,13 +472,13 @@ isPrerelease name publishedAt tagName tarballUrl targetCommitish uploadUrl url z
 ### 13.1 归零之后那颗「继续」是死的
 
 - **根因**：`resumeCountdown()` 开头就是 `if (state.isRunning || state.remainTime <= Duration.zero) return;`（`lib/core/providers/clock_providers.dart:97`）。停留档 `00:00:00` 时 `remainTime` 正好是 zero，所以点「继续」什么都不发生——按钮在场、也亮着，但按了没反应。
-- **落点**：判定放在视图层（`clock_view.dart:326` 的 `zeroed`），标签/图标/回调三处同步分叉（`:357`、`:363`、`:370`），「重来」走 `startCountdown(clockState.total)`，用上一轮的时长原地再起。
+- **落点**：判定放在视图层（`clock_view.dart:366` 的 `zeroed`），标签/图标/回调三处同步分叉（`:397`、`:403`、`:410`），「重来」走 `startCountdown(clockState.total)`，用上一轮的时长原地再起。
 - **为什么不动 notifier**：下沉成「`resumeCountdown` 在归零时自动当重开用」会改掉那个方法的语义（暂停-继续是一对，重开是另一件事），而且三档结束行为本来就分发在视图层（见 §11.2），别再开第二个例外。
 - 三档下这条的可见面不一样：停留档归零后画面就停在那，「重来」是唯一能原地再起的入口；自动重开档 `remainTime` 直接被上一轮 `total` 填回去，永远走不到 zero，看不到这颗；弹彩蛋档只替换中间那块时钟区域，**底下芯片条照旧在场**，所以彩蛋期间那颗也是「重来」——这条由「归零展示彩蛋」用例里新增的一行 `expect(find.text('重来'), findsOneWidget)` 钉住，不是推测。
 
 ### 13.2 细进度条开关（R18）
 
-`showProgressBar` 默认 `true`（老版本一直有这根条，加开关不能顺手改变默认画面），`update()` 写的设置键从 10 个变成 11 个（新加的这条在 `lib/core/providers/app_providers.dart:139`）。与「底层进度组件」的优先级是实测过的一张表：
+`showProgressBar` 默认 `true`（老版本一直有这根条，加开关不能顺手改变默认画面），`update()` 写的设置键从 10 个变成 11 个（新加的这条在 `lib/core/providers/app_providers.dart:159`）。与「底层进度组件」的优先级是实测过的一张表：
 
 | `progressDecor` | 开关开 | 开关关 |
 | --- | --- | --- |
@@ -487,7 +487,7 @@ isPrerelease name publishedAt tagName tarballUrl targetCommitish uploadUrl url z
 | `sky` 日出日落 | 背景层 + 细进度条 | 只有背景层 |
 
 - 「选了组件就不再画细条」不是这条需求带的，是 §10.3 就定下的「同一份信息不画两遍」；这轮补的是**用户主动关**这一支：sky 不顶细条，但用户点了关，关必须算数。
-- 关掉之后倒计时画面只剩数字本身，连「还在走」的凭据都没有——这正是用户要的形态（那行开关的副标题「倒计时时数字下方那一根；关掉画面只剩数字」就是把这句话写给用户看的，`settings_page.dart:143`），不是遗漏。
+- 关掉之后倒计时画面只剩数字本身，连「还在走」的凭据都没有——这正是用户要的形态（那行开关的副标题「倒计时时数字下方那一根；关掉画面只剩数字」就是把这句话写给用户看的，`settings_page.dart:147`），不是遗漏。
 
 ### 13.3 设置页：从一整面芯片墙到七张分区卡
 
@@ -553,7 +553,7 @@ isPrerelease name publishedAt tagName tarballUrl targetCommitish uploadUrl url z
 ### 14.2 实现的三处 + 一条注入缝
 
 - `lib/core/update_check.dart`（新，88 行）：`buildSha` / `latestBuildUrl` / `devBuildReleaseUrl` 三个常量、`UpdateCheckStatus` 四档、`fetchLatestBuildSha`（带 10 秒超时，`HttpClient` 默认跟随 302，UA 见下面「实测补记」）、`checkForUpdate`。
-- `lib/settings/settings_page.dart:177-186`：「关于」卡里加了一行当前构建短号，下面挂 `const UpdateCheckSection()`（`:349-440`）。两个 `OutlinedButton` 用 `Wrap` 摆，复制按钮只在「有新版 / 本地构建」两种结果下出现（`canCopy` 排除 `failed` 与 `upToDate`，`_message` 的四句中文见 `:383-393`）。
+- `lib/settings/settings_page.dart:191-200`：「关于」卡里加了一行当前构建短号，下面挂 `const UpdateCheckSection()`（`:372-465`）。两个 `OutlinedButton` 用 `Wrap` 摆，复制按钮只在「有新版 / 本地构建」两种结果下出现（`canCopy` 排除 `failed` 与 `upToDate`，`_message` 的四句中文见 `:404-416`）。
 - `.github/workflows/build-apk.yml:55-58 / :70 / :119-124`：两条 `flutter build apk` 都加 `--dart-define=BUILD_SHA=$GITHUB_SHA`，校验和那一步顺手 `printf '%s\n' "$GITHUB_SHA" > dev-build-sha.txt`，`gh release upload` 的清单里点名带上它，Release 正文补了一句两份 txt 各干什么。
 - `tool/build_hap.sh:31`：本机出鸿蒙包时注入 `git rev-parse HEAD`，拿不到就注空串（App 侧走「比不了」分支）。
 
@@ -781,7 +781,7 @@ YAML 侧照例本机验过：`py` + PyYAML `safe_load` 通过，抽出这段 `ru
 
 不逐条去改 22 套令牌里的几十个字面量（改完下一套皮肤照样会塌），而是在令牌层加两个派生 getter，把兜底变成结构性的：`UiTokens.labelInk`（从 `muted` 推）与 `accentInk`（从 `accent` 推），见 [lib/theme/ui_style.dart:89](file:///D:/Phase3/Projects/timenote/lib/theme/ui_style.dart#L89)。两者都同时对「底色」和「面板合成色」取更吃亏的那一版；结果进全局 `_inkCache`（22 套一次算完常驻，不逐帧重算 50 次明度插值）。
 
-接入点（`grep` 实测）：`uiLabelStyle` 内部（`:769`，也就是所有卡片标题 / 分组小标题 / 抽屉标题）、设置页 5 处 12pt 副文案（`settings_page.dart:257/278/289/353/453`）、抽屉空状态（`todo_drawer.dart:116`）、主屏强调色 4 处（`clock_view.dart:204/314/333/426`）、设置页强调色竖条与「检查更新」按钮（`settings_page.dart:229/418`）。
+接入点（`grep` 实测）：`uiLabelStyle` 内部（`:769`，也就是所有卡片标题 / 分组小标题 / 抽屉标题）、设置页 5 处 12pt 副文案（`settings_page.dart:260/284/295/359/459`）、抽屉空状态（`todo_drawer.dart:117`）、主屏强调色 4 处（`clock_view.dart:224/334/353/446`）、设置页强调色竖条与「检查更新」按钮（`settings_page.dart:232/425`）。
 
 顺带把设置页残留的 11pt 小字统一提到 12pt（`grep -c "fontSize: 11"` 在 `settings_page.dart`、`lib/todo/*`、`clock_view.dart` 现在是 0 命中）—— Apple 给移动端文字的最小是 11pt，但那是「最小」不是「该用」。
 
@@ -792,15 +792,15 @@ YAML 侧照例本机验过：`py` + PyYAML `safe_load` 通过，抽出这段 `ru
 | 系统开关 | Apple 的出处 | 这一轮的答复 |
 | --- | --- | --- |
 | 减弱动态效果 | `accessibility.md › Cognitive`、`motion.md › Make motion optional` | 翻页是本 App 唯一自动、反复的动画（每分钟自己走一次）。`lib/flip_clock/flip_card_widget.dart:33` 读 `MediaQuery.maybeDisableAnimationsOf`，开着就整体换成 **150ms crossfade**，不做位移与翻转。改在共用组件里，主屏和设置页预览一起生效 |
-| 定时藏控件（App 自己造的「时间盒」） | `accessibility.md › Cognitive`（别给操作设时间压力） | 新增设置项「控件自动隐藏」（默认开着，`app_providers.dart:94/132/150`）。关掉后 `clock_view.dart:94` 直接早退不重新起表，并在 `:182` 的 `ref.listen` 里把已经淡出的那一屏**当场叫回**，不用重启、不用先点一下屏幕 |
-| 深色外观 | `dark-mode.md` | `ThemeBase` 从两档变三档：`system`（新默认）/ `light` / `dark`（`enum_def.dart:11`），`resolveThemeBase` 在 `:26`，`main.dart:62` 把它翻成 `ThemeMode.system`。**老用户不受影响**：箱里存着 `'dark'`/`'light'` 就照旧解析（`app_providers.dart:76` 的默认值只在 key 缺失时才落到 `system`）。沉浸屏保留手动档是 `dark-mode.md` 认可的例外——黑环境里被系统切亮真的刺眼 |
-| 读屏 / 无障碍标签 | `accessibility.md › Vision` | 抽屉入口 `Icons.menu` → `Icons.checklist`（`clock_view.dart:241`）：「汉堡」不表达「这是一份清单」。整块翻页板对外仍只报一个完整时间（`ExcludeSemantics` + `Semantics(label:)`），纯图标按钮靠 `tooltip` 拿到 SDK 给的语义标签 |
+| 定时藏控件（App 自己造的「时间盒」） | `accessibility.md › Cognitive`（别给操作设时间压力） | 新增设置项「控件自动隐藏」（默认开着，`app_providers.dart:100/140/162`）。关掉后 `clock_view.dart:114` 直接早退不重新起表，并在 `:202` 的 `ref.listen` 里把已经淡出的那一屏**当场叫回**，不用重启、不用先点一下屏幕 |
+| 深色外观 | `dark-mode.md` | `ThemeBase` 从两档变三档：`system`（新默认）/ `light` / `dark`（`enum_def.dart:11`），`resolveThemeBase` 在 `:26`，`main.dart:55` 把它翻成 `ThemeMode.system`。**老用户不受影响**：箱里存着 `'dark'`/`'light'` 就照旧解析（`app_providers.dart:83` 的默认值只在 key 缺失时才落到 `system`）。沉浸屏保留手动档是 `dark-mode.md` 认可的例外——黑环境里被系统切亮真的刺眼 |
+| 读屏 / 无障碍标签 | `accessibility.md › Vision` | 抽屉入口 `Icons.menu` → `Icons.checklist`（`clock_view.dart:261`）：「汉堡」不表达「这是一份清单」。整块翻页板对外仍只报一个完整时间（`ExcludeSemantics` + `Semantics(label:)`），纯图标按钮靠 `tooltip` 拿到 SDK 给的语义标签 |
 
-点按尺寸是量的不是猜的：主屏 6 颗芯片实测 `Rect` 高 48pt（528→576），设置页风格芯片把内边距 `vertical` 从 8 提到 12 后实测 46–48pt（`style_picker.dart:33`）；`clock_view.dart:436` 的芯片 padding 走 16×8。对照 Apple 移动端一档 44×44pt、最小 28×28pt。
+点按尺寸是量的不是猜的：主屏 6 颗芯片实测 `Rect` 高 48pt（528→576），设置页风格芯片把内边距 `vertical` 从 8 提到 12 后实测 46–48pt（`style_picker.dart:33`）；`clock_view.dart:456` 的芯片 padding 走 16×8。对照 Apple 移动端一档 44×44pt、最小 28×28pt。
 
 ### 18.4 按完要有回响，错了要能撤
 
-- **触感 6 处**（`playing-haptics.md`：反馈要落在界面里，且与提示音是两条独立通道）：勾选 `todo_item.dart:23`、删除 `:41` 走 `lightImpact`；主屏芯片 `clock_view.dart:448`、设置页风格芯片 `style_picker.dart:28`、空状态「添加待办」`todo_drawer.dart:29` 走 `selectionClick`；倒计时归零 `clock_view.dart:133` 走 `heavyImpact`，**排在 `soundEnable` 判断之前**——静音的人也得知道表走完了。
+- **触感 6 处**（`playing-haptics.md`：反馈要落在界面里，且与提示音是两条独立通道）：勾选 `todo_item.dart:23`、删除 `:41` 走 `lightImpact`；主屏芯片 `clock_view.dart:468`、设置页风格芯片 `style_picker.dart:28`、空状态「添加待办」`todo_drawer.dart:29` 走 `selectionClick`；倒计时归零 `clock_view.dart:153` 走 `heavyImpact`，**排在 `soundEnable` 判断之前**——静音的人也得知道表走完了。
 - **删除可撤销**（`undo-and-redo.md`：可逆的日常动作不该弹窗，该给 undo）：删单条待办出 SnackBar「已删除「xxx」＋撤销」，`restoreTodo(item, index)`（`todo_providers.dart:52`）按原下标插回，`index.clamp` 过、重复 id 直接跳过。
 - **空状态给得出下一步**（`writing.md`：空屏要指出下一步动作）：抽屉空态从一句话变成「一句话 + 一颗『添加待办』」，那颗按钮做的是把焦点交给输入框（`todo_drawer.dart:28-31`），键盘跟着起来。
 - **去硬编码色**：完成态文字原来写死 `Colors.grey`、删除图标原来写死 `Colors.red`。这两个色不在任何一套令牌的色族里——在暖纸白那一族（编辑部、复古印刷、自然有机）上就是一块灰斑和一条生硬原色线；现在完成态走 `labelInk`、删除走 `accentInk`（这条是我的判断，不是 HIG 的硬指标）。
@@ -844,3 +844,59 @@ YAML 侧照例本机验过：`py` + PyYAML `safe_load` 通过，抽出这段 `ru
 - 与 `v1.0.0` 的 arm64（18,237,326）比大了 **65,604 字节**，这轮只动 Dart 与文档：`pubspec.yaml:38-40` 的 `assets:` 只有 `assets/data/quotes.json` 与 `assets/audio/alert.wav` 两项，本轮没新增任何资源，所以增量只可能来自 Dart/AOT 一侧（这是量级核对，不是逐字节归因）。
 
 **仍未验证**：v1.1.0 的 APK 在真机上的表现由你在 dev-build/正式版直链上自测；鸿蒙侧「跟随系统」只有源码结论。
+
+## 十九、第十二轮：不强制横屏（R4）—— 开始页问一次横还是竖
+
+需求原话：「不要强制横屏，可以设置一个开始按钮，点击后（设置了可选横屏还是竖屏，默认横屏），然后开始，记得根据改动大小升级版本」。核心宗旨没动：还是离线翻页时钟 + 待办抽屉 + 彩蛋文案，不加登录、不加路由层级。需求清单里 R4 原本写的是「三选：自动 / 强制横 / 强制纵」，但用户这一句只要了两档 + 默认横屏，所以做的是两档，「自动」留在清单里没顺手加。
+
+### 19.1 方向这件事只留两个落点
+
+状态只有一份，写在设置里：`enum AppOrientation { landscape, portrait }`（[lib/settings/enum_def.dart:147](file:///D:/Phase3/Projects/timenote/lib/settings/enum_def.dart#L147)）→ `AppSettingsState.orientation`（[lib/core/providers/app_providers.dart:23](file:///D:/Phase3/Projects/timenote/lib/core/providers/app_providers.dart#L23)，构造默认 `landscape` `:38`，`copyWith` `:54/:69`，读盘 `:101` 与 `:141`，写盘 `'screenOrientation'` `:163`）。key 缺失才落默认，老用户箱里没有这个键，第一次读就是横屏。
+
+- **落点一：开始页**（[lib/start/start_view.dart:28](file:///D:/Phase3/Projects/timenote/lib/start/start_view.dart#L28) `choose()`）——写设置 + 当场下发一次方向，让「选竖屏」立刻看到效果；`:33 start()` 再按当前档位下发一次，然后 `pushReplacement` 换成 `ClockView`（`:37`）。用 `pushReplacement` 而不是 `push`：时钟页就是新的根，返回键该退出 App，不该退回开始页。
+- **落点二：时钟页**（[lib/flip_clock/clock_view.dart:46](file:///D:/Phase3/Projects/timenote/lib/flip_clock/clock_view.dart#L46)）——`initState` 进来先按档位锁向，`:50` 才进 `immersiveSticky`，`:52` 挂一个 `ref.listenManual(...select((s) => s.orientation))`，所以在设置页改排向不用退回开始页也不用重启；`dispose` 里 `:83` 关掉这个订阅。
+- `main()` 里原来那两句 `await SystemChrome.…` 删掉了（[lib/main.dart:12](file:///D:/Phase3/Projects/timenote/lib/main.dart#L12) 留下为什么不在这里定，`:72` 的 `home` 换成 `StartView`）。**这两句不能留在 `main()`**：方向在 `await` 期间就把全局锁死，开始页自己也会被强扭成横屏。
+- 档位收口在 [lib/core/constants.dart:20](file:///D:/Phase3/Projects/timenote/lib/core/constants.dart#L20) `orientationsOf()`，横屏两档 `:9`、竖屏两档 `:15`。原来打算给「自动」用的 `systemDefaultOrientations` 因为这一版没有第三档，写完发现没人调，已删。
+
+### 19.2 三个平台各自的「强制横屏」是怎么来的
+
+| 平台 | 本轮取证 | 结论 |
+| --- | --- | --- |
+| Android | `grep -n screenOrientation android/app/src/main/AndroidManifest.xml` → 0 命中 | 清单从来没锁过，横屏完全是运行时 `setPreferredOrientations` 的结果；删掉 `main()` 那一句就真的不强制了 |
+| iOS | `ios/Runner/Info.plist:56-61`（手机）与 `:62-68`（平板） | 手机档列了 `Portrait` + 两个 `Landscape`，**没有 `PortraitUpsideDown`**；平板四个都有。所以 `portraitDown` 在 iPhone 上等于没请求，只在 iPad 上有意义 |
+| 鸿蒙 | `ohos/entry/src/main/module.json5:24` 由 `auto_rotation_landscape` → `auto_rotation` | 清单档改成「不预设」，方向交给运行时。embedder 真的实现了这条路：`PlatformChannel.ets:473-476` 收到 `SystemChrome.setPreferredOrientations` → `decodeOrientations`（`:71`）把档位按位或，横屏两档 `0x08\|0x02=0x0a` → `AUTO_ROTATION_LANDSCAPE`（`:115`），竖屏两档 `0x01\|0x04=0x05` → `AUTO_ROTATION_PORTRAIT`（`:108`），最后 `PlatformPlugin.ets:240-243` 调 `mainWindow.setPreferredOrientation`。**读的是源码，没在真机跑过** |
+
+### 19.3 flutter_test 的三个坑（本轮现场踩，46 例红 → 1 例红 → 全绿）
+
+1. **不能在点击回调里 `await` 平台通道**。第一版 `choose()`/`start()` 写了 `await SystemChrome.setPreferredOrientations(...)`，`flutter test` 一跑就是 **46 例红**——fake-async 区内这个 future 永远不完成，路由也永远不换。这和记忆里那条「剪贴板不 mock 会挂住」是同一类：`setPreferredOrientations` 本来就是发出去就不等回执的单向调用，真机也没必要让按钮等它。改成不 `await` 之后掉到 16 例红。
+2. **mock 要按真实的线上格式解**。`SystemChannels.platform` 是 `JSONMethodCodec`，`setPreferredOrientations` 的 args 是 `system_chrome.dart:548` 那里 `_stringify` 出来的**字符串数组**（形如 `'DeviceOrientation.landscapeLeft'`），`setEnabledSystemUIMode` 的 args 是**一个纯字符串**（`:614`）。第一版按 `Map` 解，直接吃 `PlatformException: type 'List<dynamic>' is not a subtype of type 'Map<Object?, Object?>?'`。`recordSystemChrome()`（[test/app_widget_test.dart:136](file:///D:/Phase3/Projects/timenote/test/app_widget_test.dart#L136)）统一把末段削下来，断言写的就是 `AppConstants` 里那两档的顺序。
+3. **`pushReplacement` 之后旧路由不是立刻消失**。用临时探针（跑完就删的 `zz_probe_test.dart`）逐帧量到 `StartView` 大约在点后 **500ms** 才离开 widget 树，所以 `passStartScreen()` 是「循环 pump 到 `StartView` 不在树里为止」（[test/support/pass_start.dart:12](file:///D:/Phase3/Projects/timenote/test/support/pass_start.dart#L12)），不是固定 pump 两次；固定两次会让抽屉/设置那一串老用例点到自己头上的旧控件。
+   顺带一条 SDK 事实：这个版本的 `SingleChildScrollView` **没有 `center` 参数**（写了编译不过），居中得靠 `LayoutBuilder + ConstrainedBox(minHeight: constraints.maxHeight)`。
+
+### 19.4 一例老测试为什么会红，以及开始页为什么必须能滚
+
+「键盘已弹出时自定义弹窗不塌成 0 高」在 914×411 逻辑像素 + 570 物理像素键盘 insets 下变红，但红的原因不在弹窗：**开始页那一版是不可滚的 `Column`**，同样的高度只剩不到 200，`ensureVisible` 之前「开始」那颗按钮已经在屏幕外，点不到 → 后面的 `ActionChip` 自然找不到。修法两层：开始页控件区整块可滚（[lib/start/start_view.dart:107](file:///D:/Phase3/Projects/timenote/lib/start/start_view.dart#L107)），过屏的辅助函数里 `await tester.ensureVisible(find.text('开始'))` 再点。这和上一轮修的弹窗是同一个约束的两个面：**软键盘吃掉的不是「一块内容」，是整个视口**。
+
+另一个连带修正：`tapChip()` 现在开头调 `wakeChrome()`（[test/support/pass_start.dart:26](file:///D:/Phase3/Projects/timenote/test/support/pass_start.dart#L26)）。本轮给 `pumpApp` 加了过开始页的开销，6 秒的自动隐藏在这之前已经到期，控件淡出后芯片点不到。`wakeChrome` 在 `EggDisplay` 在场时**故意不唤回**——彩蛋上点屏幕的语义是「结束彩蛋」，不是「叫醒控件」。
+
+### 19.5 竖屏这一档带出来的两处画面改动
+
+- **待办抽屉**：固定 360 宽在 390 宽的竖屏上等于盖住整屏，「点缝收回去」这条退路没有了。改成 `(屏宽 × 0.85).clamp(0, 360)`（[lib/todo/todo_drawer.dart:52](file:///D:/Phase3/Projects/timenote/lib/todo_drawer.dart#L52)），390 时是 331.5，右边留 58.5 的缝；平板上仍然 360，观感不变。
+- **开始页分栏**：与设置页同一条「宽 + 高」门限（`maxWidth >= 760 && maxHeight >= 400`，[lib/start/start_view.dart:51](file:///D:/Phase3/Projects/timenote/lib/start/start_view.dart#L51)）。只看宽度会把横屏手机当平板，这是上一轮在设置页踩过的同一个坑。
+- 文案口径：两颗芯片沿用 `appOrientationName()`（[lib/settings/style_picker.dart:322](file:///D:/Phase3/Projects/timenote/lib/settings/style_picker.dart#L322)）=「横屏 / 竖屏」，设置页那张卡的小标题最终定的是「屏幕排向」而不是「计时画面排向」——后者会和「数字样式」卡里已有的「计时画面」（那是 10 种数字风格）撞名。
+
+### 19.6 测试与本轮数字（实测）
+
+- `flutter analyze` → `No issues found!`；`flutter test` → `00:29 +214: All tests passed!`（第十一轮 209 → **214**）。
+- 新增 5 条都在 `test/app_widget_test.dart:153` 那组「开始页与排向」：① 第一屏是开始页、默认横屏、`orientationCalls` 与 `uiModeCalls` 都空 ② 点「开始」才下发 `['landscapeLeft','landscapeRight']` 且 `uiModeCalls` 含 `immersiveSticky`，`StartView` 离开树 ③ 选竖屏当场下发 `['portraitUp','portraitDown']` + 落盘 `'portrait'`，容器重建后读回 ④ 设置页那颗排向芯片改完立刻生效 ⑤ 390×844 竖屏下开始页 / 时钟 / 抽屉 / 设置四屏不报错，抽屉宽 `lessThan(390)`。
+- 老用例只改了两个入口：`pumpApp` 末尾过开始页、`tapChip` 开头唤回 chrome；`progress_decor_test.dart` 与 `ui_style_test.dart` 各自本地 `pumpApp` 末尾加同一句。断言一条没放宽。
+- diff 规模（`git diff --numstat`，提交前实测）：`lib` **75 增 / 13 删**，`test` **142 增 / 0 删**，另加 `ohos/entry/src/main/module.json5` 与 `pubspec.yaml` 各 1 行。中途跑过一次 `dart format`，把 8 个文件里跟本轮无关的老代码重排了换行；退回的方式是「`git show HEAD:test/app_widget_test.dart` + 只插入新块」再逐行做 whitespace-insensitive 对账，所以现在 `test/app_widget_test.dart` 的 numstat 是 **138 增 / 0 删**——diff 里没有一行是格式化。
+- 版本 `pubspec.yaml:3` → `1.2.0+3`：新增的是用户可见能力（开始页 + 横/竖二选 + 设置里那颗芯片）和一处竖屏适配，存储只多一个键、老配置读回来照常工作 → 按改动大小走次要版本，build 号 +1。
+
+### 19.7 边界（没做到的部分）
+
+- **真机一次没跑**：横/竖切换的手感、`immersiveSticky` 在竖屏下是否还吃得满、鸿蒙 `auto_rotation` 的实际旋转行为，全都只有代码与 widget 层的保证。390×844 那条测的是「不报错、不溢出」，不是「好看了」。
+- **HAP 没重新出包**：`module.json5` 改了，包内 `module.json` 的 `orientation` 还没复验；APK 侧本轮没重出，README 里 `18,245,379` / `23,093,027` 那几个字节数还是 `52e4bf3` 那一轮的。出包要在提交之后跑，`--dart-define=BUILD_SHA` 才拿得到当轮 commit。
+- **「自动」这一档没做**：R4 原清单的第三档要的是跟随传感器。代码上已经预留了形状（`orientationsOf()` 是唯一出口），加一档就是再加一颗芯片 + 一个 `DeviceOrientation.values` 的档位，但没做，因为用户这句原话没要。
+- 竖屏下的 10 种数字风格与 8 种进度组件没跑观感矩阵（全矩阵那条只在 800×600 与横屏 914×411 上跑）。
+- `portraitDown` 在 iPhone 上无效（`Info.plist` 手机档没列 upside-down），这条是清单事实，不是本 App 的选择；真机上要不要支持得改 plist。

@@ -48,7 +48,8 @@ class _TodoDrawerState extends ConsumerState<TodoDrawer> {
     final tokens = UiScope.of(context);
 
     return Drawer(
-      width: 360,
+      // 竖屏手机上固定 360 会把整屏盖住，留出一条约 15% 的缝当「还能点回去」的提示
+      width: (MediaQuery.sizeOf(context).width * 0.85).clamp(0.0, 360.0),
       backgroundColor: tokens.surface ?? tokens.bg,
       child: SafeArea(
         child: Padding(

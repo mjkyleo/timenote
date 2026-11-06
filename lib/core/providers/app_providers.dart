@@ -19,6 +19,9 @@ class AppSettingsState {
   /// 控件层是否 6 秒后自动隐藏（待机屏的沉浸式签名）；关掉就常驻
   final bool autoHideChrome;
 
+  /// 计时画面的排向，开始页选一次、设置里随时改（默认横屏，沿用原来的观感）
+  final AppOrientation orientation;
+
   AppSettingsState({
     required this.themeBase,
     required this.uiStyle,
@@ -32,6 +35,7 @@ class AppSettingsState {
     required this.keepScreenOn,
     required this.soundEnable,
     this.autoHideChrome = true,
+    this.orientation = AppOrientation.landscape,
   });
 
   AppSettingsState copyWith({
@@ -47,6 +51,7 @@ class AppSettingsState {
     bool? keepScreenOn,
     bool? soundEnable,
     bool? autoHideChrome,
+    AppOrientation? orientation,
   }) {
     return AppSettingsState(
       themeBase: themeBase ?? this.themeBase,
@@ -61,6 +66,7 @@ class AppSettingsState {
       keepScreenOn: keepScreenOn ?? this.keepScreenOn,
       soundEnable: soundEnable ?? this.soundEnable,
       autoHideChrome: autoHideChrome ?? this.autoHideChrome,
+      orientation: orientation ?? this.orientation,
     );
   }
 }
@@ -92,6 +98,8 @@ class AppSettingsNotifier extends Notifier<AppSettingsState> {
     final keepOn = StorageService.getSetting('keepScreenOn', true);
     final soundOn = StorageService.getSetting('soundEnable', true);
     final autoHide = StorageService.getSetting('autoHideChrome', true);
+    final orientationRaw = StorageService.getSetting(
+        'screenOrientation', AppOrientation.landscape.name);
 
     return AppSettingsState(
       themeBase: ThemeBase.values.firstWhere(
@@ -130,6 +138,10 @@ class AppSettingsNotifier extends Notifier<AppSettingsState> {
       keepScreenOn: keepOn,
       soundEnable: soundOn,
       autoHideChrome: autoHide,
+      orientation: AppOrientation.values.firstWhere(
+        (e) => e.name == orientationRaw,
+        orElse: () => AppOrientation.landscape,
+      ),
     );
   }
 
@@ -148,6 +160,7 @@ class AppSettingsNotifier extends Notifier<AppSettingsState> {
       'keepScreenOn': newState.keepScreenOn,
       'soundEnable': newState.soundEnable,
       'autoHideChrome': newState.autoHideChrome,
+      'screenOrientation': newState.orientation.name,
     });
   }
 }

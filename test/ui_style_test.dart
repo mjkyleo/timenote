@@ -15,6 +15,7 @@ import 'package:timenote/theme/ui_style.dart';
 
 import 'support/fake_storage.dart';
 import 'support/fake_wakelock.dart';
+import 'support/pass_start.dart';
 
 void main() {
   group('令牌表完整性', () {
@@ -144,6 +145,7 @@ void main() {
       for (var i = 0; i < 3; i++) {
         await tester.pump(const Duration(milliseconds: 50));
       }
+      await passStartScreen(tester);
     }
 
     test('出厂默认底色是跟随系统', () {

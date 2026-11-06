@@ -38,11 +38,23 @@ class _ClockViewState extends ConsumerState<ClockView> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   late final ProviderSubscription<ClockState> _clockSub;
   late final ProviderSubscription<bool> _wakelockSub;
+  late final ProviderSubscription<AppOrientation> _orientationSub;
 
   @override
   void initState() {
     super.initState();
-    SystemChrome.setPreferredOrientations(AppConstants.landscapeOrientations);
+    _applyOrientation(ref.read(appSettingsNotifierProvider).orientation);
+    // 待机翻页时钟：状态栏与导航条会毁掉整屏观感（模拟器实测可见 3:05 / LTE / 电量）。
+    // immersiveSticky = 边缘滑动临时唤回后自动再隐藏；鸿蒙侧 flutter_ohos 的
+    // PlatformPlugin.setSystemChromeEnabledSystemUIMode 显式实现了这个模式，不是空调用。
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    // 开始页与设置页都能改排向，改完得立刻生效，不能等下次启动
+    _orientationSub = ref.listenManual(
+      appSettingsNotifierProvider.select((s) => s.orientation),
+      (prev, next) {
+        if (prev != null && prev != next) _applyOrientation(next);
+      },
+    );
     _applyWakelock(ref.read(appSettingsNotifierProvider).keepScreenOn);
     // 倒计时归零 → 按「结束行为」那一档分发（停留 / 重开 / 彩蛋），外加提示音
     _clockSub = ref.listenManual(clockNotifierProvider, (prev, next) {
@@ -68,9 +80,17 @@ class _ClockViewState extends ConsumerState<ClockView> {
     _chromeTimer?.cancel();
     _clockSub.close();
     _wakelockSub.close();
+    _orientationSub.close();
     WakelockPlus.disable();
     _alarm?.dispose();
     super.dispose();
+  }
+
+  /// 按用户在这一轮选的排向锁方向（横屏两档 / 竖屏两档）
+  ///
+  /// 只在这一次决定里锁：开始页不锁，进时钟才锁，退出 App 交给系统。
+  void _applyOrientation(AppOrientation o) {
+    SystemChrome.setPreferredOrientations(AppConstants.orientationsOf(o));
   }
 
   void _applyWakelock(bool enabled) {

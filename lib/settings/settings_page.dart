@@ -170,6 +170,12 @@ class SettingsPage extends ConsumerWidget {
               '文案完全随机。'),
         ]),
         _card(context, tokens, '屏幕与声音', [
+          _group(tokens, '屏幕排向（开始页那一题，随时能改）', [
+            for (final o in AppOrientation.values)
+              item(appOrientationName(o), appState.orientation == o,
+                  () => update(appState.copyWith(orientation: o))),
+          ]),
+          _hint(tokens, '选完立刻转过去；开始页默认给的是横屏。'),
           _switch(tokens, '屏幕常亮', '立即生效，防止平板息屏', appState.keepScreenOn,
               (val) => update(appState.copyWith(keepScreenOn: val))),
           _switch(tokens, '提示音', '倒计时结束时播放，与结束行为互不影响', appState.soundEnable,

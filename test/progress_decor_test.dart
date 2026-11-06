@@ -14,6 +14,7 @@ import 'package:timenote/settings/style_picker.dart';
 
 import 'support/fake_storage.dart';
 import 'support/fake_wakelock.dart';
+import 'support/pass_start.dart';
 
 const Color _accent = Color(0xFF00FF00);
 const Color _fg = Color(0xFFFFFFFF);
@@ -257,6 +258,7 @@ void main() {
       for (var i = 0; i < 3; i++) {
         await tester.pump(const Duration(milliseconds: 50));
       }
+      await passStartScreen(tester);
     }
 
     Future<void> setDecor(WidgetTester tester, ProgressDecor d) async {
