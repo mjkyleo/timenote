@@ -819,3 +819,28 @@ YAML 侧照例本机验过：`py` + PyYAML `safe_load` 通过，抽出这段 `ru
 - 触感与减弱动效要人手和眼睛判：请在 dev-build 直链上装包，开系统「减弱动态效果」再翻一次，并摸一下勾选/删除/归零三处震动轻重是否分得开。
 - 鸿蒙侧：`ThemeMode.system` 依赖平台亮度回传。读了 `flutter_ohos` 的 embedder 源码，**通道是通的**（`engine/src/flutter/shell/platform/ohos/flutter_embedding/flutter/src/main/ets`）：冷启动 `view/FlutterView.ets:999`/`:1104` → `sendSettings()`（`:1114`）→ `embedding/ohos/Settings.ets:40` 的 `.setPlatformBrightness(this.getThemeMode(mediaQuery))`，暗色由 `Settings.ets:50-60` 的 `matchMediaSync('(dark-mode: true)')` 判；系统深色中途切换由 `FlutterAbility.ets:519-526` 和 `FlutterEntry.ets:106-114` 按 `config.colorMode` 重发；消息键在 `systemchannels/SettingsChannel.ets:29`。同一处还发 `setTextScaleFactor(config.fontSizeScale)`，所以系统字号缩放也是有信号的。**但这是读源码，不是运行时取证**——未签名 HAP 装不上真机，等你在 DevEco 签完再开/关一次系统深色确认底色跟着切。
 - 放大字号：彩蛋那条早就把 `textScaler` 算进测量，但设置页这 5 处 12pt 文案在最大字号下没跑过全矩阵溢出回归（现有的是 800×600 冒烟 + 横屏 914×411 那条）。
+
+### 18.7 发布 v1.1.0：分支、标签与云端取证
+
+**版本为什么走 `1.0.0+1` → `1.1.0+2`**：这轮加的是用户可见能力（底色三档且默认改成「跟随系统」、控件自动隐藏可关、删除待办可撤销、6 处触感、响应减弱动效）并修了两处真缺陷，存储格式没变、老配置读回来照常工作 —— 按改动大小落次要版本，build 号 +1。`lib` 与 `test` 里没有一处引用版本号（对这两个目录搜 `1\.0\.0`、`PackageInfo`、`version` 三个词，命中 0 行），`android`/`ohos` 的版本由 pubspec 供给，所以改一行就够。
+
+**走的顺序**：`feat/hig-presentation-rework`（`ffb2938` 功能 + `7a715c8` 发布说明）→ `git merge --ff-only` 进 `main` → 推 main（run #19）→ 注解标签 `v1.1.0`（tag 对象 `b45b99a`，tagger 也是 noreply 邮箱）指向 `7a715c8` → 推标签（run #20）。推标签前先改了 `RELEASE-NOTES.md`：CI 的 `release` 作业把这份文件整份当正式版正文（`.github/workflows/build-apk.yml:203-209`），不改就等于拿 v1.0.0 的功能清单发 1.1.0。
+
+**取证方式（本轮新学的一条）**：这台机器连 `github.com:443` 直链**直接超时**（Node 报 `Connect TimeoutError (attempted address: github.com:443)`），不是以前记的「截断」；小文件走 `api.github.com/repos/.../releases/assets/{id}` + `Accept: application/octet-stream` 一次就过。顺带纠一条：`Accept: application/vnd.github.raw` 在 asset 端点上**不生效**（照样回 JSON），要原文只认 `octet-stream`。
+
+**实测结果**：
+
+| 项 | run #19（推 main） | run #20（推 `v1.1.0`） |
+| --- | --- | --- |
+| 作业 | `android` 10 步全 `success`；`release`/`ios` skipped | `release` 9 步全 `success`；`android`/`ios` skipped |
+| `head_sha` | `7a715c889531bb109415881a731bcb9ffe85d748` | 同左 |
+| 发布物 | `dev-build` 6 个附件，`updated_at` 全在 `04:53:18–19` | `v1.1.0` 5 个附件，`updated_at` 全在 `04:54:27–29`，`prerelease=false`、`draft=false`、`published_at=04:54:26` |
+| 正文首行 | 「…最新提交：`7a715c8`」 | 「对应提交 `7a715c8`（Flutter 3.47.8…）」 |
+| annotations | 无新增 warning | 无新增 warning |
+
+- `/releases/latest` 返回 `v1.1.0`（标题「时笺 TimeNote v1.1.0（Android 可安装包）」），`v1.0.0` 没被动过：仍是非预发布、5 个附件。
+- 同轮互证：`dev-build` 与 `v1.1.0` 各自的 `apk-sha256.txt` 四行与 API 给的 asset `digest` 逐字相同（4 个包全对得上）；`dev-build-sha.txt` 41 字节，内容 == 两个 run 的 `head_sha` == 当时的 `main` HEAD。
+- **同一提交、两轮构建 = 字节全同、sha 全不同**：arm64 两侧都是 18,302,930 字节，digest 一个 `11369edda42c…` 一个 `2fa72ad110cd…` —— debug keystore 每轮现生成的第 N 个数据点，也是「从 dev-build 升级要先卸载」的依据。
+- 与 `v1.0.0` 的 arm64（18,237,326）比大了 **65,604 字节**，这轮只动 Dart 与文档：`pubspec.yaml:38-40` 的 `assets:` 只有 `assets/data/quotes.json` 与 `assets/audio/alert.wav` 两项，本轮没新增任何资源，所以增量只可能来自 Dart/AOT 一侧（这是量级核对，不是逐字节归因）。
+
+**仍未验证**：v1.1.0 的 APK 在真机上的表现由你在 dev-build/正式版直链上自测；鸿蒙侧「跟随系统」只有源码结论。

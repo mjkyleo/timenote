@@ -2,7 +2,7 @@
 
 > 平板离线翻页时钟 · 专注计时 + 待办 + 倒计时彩蛋
 
-**下载**：最新正式版 [v1.0.0](https://github.com/mjkyleo/timenote/releases/tag/v1.0.0)（Android 平板直接装 `app-arm64-v8a-release.apk`）；跟 main 走的自测版是常驻的 [dev-build](https://github.com/mjkyleo/timenote/releases/tag/dev-build)（每次推 main 自动覆盖）。两个入口都是公开直链，免登录、不过期。
+**下载**：最新正式版 [v1.1.0](https://github.com/mjkyleo/timenote/releases/tag/v1.1.0)（Android 平板直接装 `app-arm64-v8a-release.apk`）；跟 main 走的自测版是常驻的 [dev-build](https://github.com/mjkyleo/timenote/releases/tag/dev-build)（每次推 main 自动覆盖）。两个入口都是公开直链，免登录、不过期。
 
 一款面向 **Android 平板 / 华为鸿蒙平板 / iPad** 的纯离线时间管理 App。灵感来自 Fliqlo 式待机翻页时钟，保持极简：**翻页时钟 + 待办抽屉**，倒计时结束会随机给出一句文案陪你继续。
 
@@ -199,7 +199,7 @@ D:\dev\flutter\bin\flutter.bat build apk --release --split-per-abi \
 
 | 平台 | 能不能装 | 在哪拿 |
 | --- | --- | --- |
-| **Android 平板（正式版）** | ✅ 可直接安装 | <https://github.com/mjkyleo/timenote/releases> 里标 **Latest** 的那一条（现在是 `v1.0.0`）：4 个 APK + `apk-sha256.txt`，说明文字来自仓库里的 `RELEASE-NOTES.md`。推 `v*` 标签即由 CI 自动发布 |
+| **Android 平板（正式版）** | ✅ 可直接安装 | <https://github.com/mjkyleo/timenote/releases> 里标 **Latest** 的那一条（现在是 `v1.1.0`）：4 个 APK + `apk-sha256.txt`，说明文字来自仓库里的 `RELEASE-NOTES.md`。推 `v*` 标签即由 CI 自动发布 |
 | **Android 平板（开发版）** | ✅ 可直接安装 | Release 页的 `dev-build` 预发布（公开直链，免登录、不过期）：`app-arm64-v8a-release.apk`（平板优先）、`app-armeabi-v7a-release.apk`、`app-x86_64-release.apk`（模拟器/Chromebook）、`app-release.apk`（通用包）；另附 `apk-sha256.txt` 校验和（4 行，run #10 起含通用包）与 `dev-build-sha.txt`（本次构建的完整 commit SHA，设置页「检查更新」就是比这个） |
 | Android（同批产物） | ✅ | 每次 run 的 Artifacts `timenote-release-apk`（要登录 GitHub，默认保留 90 天） |
 | **iPad** | ❌ 装不上真机 | 只在手动触发勾选 `ios` 时构建（`flutter build ios --no-codesign`），产物是未签名 `Runner.app.zip`。要能装必须在仓库 secrets 里放 Apple 签名凭据，走 Xcode 签好再上 TestFlight/Ad Hoc |
@@ -241,7 +241,7 @@ git tag -a v1.0.0 -m "..." && git push --follow-tags   # 另发一条正式版 R
 | 推 `v1.0.0` 标签（run #15） | `release` | `android`、`ios` | 新建 `v1.0.0`，`prerelease=false`、`draft=false`，5 个附件 |
 
 - ✅ **「检查更新」这条链路第一次真的有东西可读**：`releases/download/dev-build/dev-build-sha.txt` 取回来是 `947ecaf6649bc224b522d46414bc6f8d5e8fe5e2`，和本地 HEAD 逐字相同（这条路径在改动之前实测是 **404**，App 侧那种情形归「检查失败」）。走的是免登录直链，不是有 IP 限流的 `api.github.com/repos/.../commits/main`。
-- ✅ **`--latest` 生效**：`/releases/latest` 现在返回 `v1.0.0`（标题「时笺 TimeNote v1.0.0（Android 可安装包）」，正文首行是「对应提交 `947ecaf`」+ `RELEASE-NOTES.md` 全文，中文没乱码）。
+- ✅ **`--latest` 生效**：`/releases/latest` 现在返回 `v1.0.0`（标题「时笺 TimeNote v1.0.0（Android 可安装包）」，正文首行是「对应提交 `947ecaf`」+ `RELEASE-NOTES.md` 全文，中文没乱码）。（这条是当时那一轮的取证；Latest 现在已经是 `v1.1.0`，见下面「第四轮真实验证」。）
 - ⚠️ **同一次提交、两轮构建 = 字节数全同、sha256 全不同**：`v1.0.0` 与 `dev-build` 这两轮的 arm64 都是 18,237,326 字节，而 digest 是 `855a0688…` 对 `69145927…`。这是上面那条「debug keystore 每轮现生成」的对照实验，也是为什么正式版说明里写「先卸载再装」。
 - ✅ **同轮互证不用下载 100MB**：`v1.0.0/apk-sha256.txt` 的四行与 GitHub API 自己在 asset 上给的 `digest` 字段逐字相同（4 个包全对得上），比整份下回来 `sha256sum` 便宜得多；真要字节级复现仍按上面那条走 assets API + 断点续传。
 
@@ -256,6 +256,28 @@ git tag -a v1.0.0 -m "..." && git push --follow-tags   # 另发一条正式版 R
 **推文档提交也会跑（run #16，`d4c8d66`）**：`android` 作业每一步 `success`，`dev-build-sha.txt` 跟着搬到这一轮的 commit。四个 APK 的字节数与 run #14 逐个相同（`52e4bf3`/`d4c8d66` 只动文档，`pubspec` 的 `assets:` 里没有文档），sha256 却全不同（arm64 `69145927…` → `5ef34ce3…`）—— 上面「debug keystore 每轮现生成」这条又多一个数据点。
 
 **run #17（`2552bad`）：红叉而且包真的少了**，和 run #9 那种「红叉但包已发出」正好相反。发布步删掉 arm64 与 x86_64 之后，删 v7a 时 GitHub 回 `HTTP 500`（asset `713954948`），`set -e` 当场退出 —— `dev-build` 只剩 4 个附件，平板优先装的 `app-arm64-v8a-release.apk` 直接 404，而幸存那四个的 `updated_at` 还停在 run #16（正文首行却已被 `gh release edit` 写成 `2552bad`）。根因是 `gh release upload --clobber` **不是原子的**：同名附件先删干净、再逐个上传，中间失败就等于把已删的那几个丢在空中（这个删除/上传顺序由现场反推，详见 [REVIEW.md](./REVIEW.md) §17.1）。修法是把单条上传换成最多 3 次的「上传 → `gh release view --json assets` 点名核对 6 个附件 → 缺就 20 秒后整轮重来」，三次仍不齐才判红（`.github/workflows/build-apk.yml:105-142`，本机桩 `gh` 复刻过 run #17 的缺件状态并在第 2 轮恢复，取证与验证见 REVIEW §十七）。**已恢复**：带这套重试逻辑的 `b771a10` 推上去之后 run #18 `success`，`dev-build` 重新是 6 个附件，`updated_at` 全在同一轮（`03:00:49–51`），`apk-sha256.txt` 四行与 API 的 `digest` 逐字相同，`dev-build-sha.txt` == 当前 main（`b771a10…`），正文首行也同步成「对应提交：`b771a10`」。
+
+**第四轮真实验证（run #19 推 main + run #20 推 `v1.1.0` 标签，都是 `7a715c8`，2026-11-06；对应第十一轮 HIG 改造）**：run #19 的 `android` 作业 10 步全 `success`（`release`、`ios` skipped），run #20 的 `release` 作业 9 步全 `success`（`android`、`ios` skipped），两个 run 的 `annotations` 都没有新的 warning。
+
+| 事件 | 跑了哪个作业 | 发布结果 |
+| --- | --- | --- |
+| 推 main（run #19） | `android` | `dev-build` 仍是 6 个附件，`updated_at` 全在同一轮（`04:53:18–19`），正文首行同步成「最新提交：`7a715c8`」 |
+| 推 `v1.1.0` 标签（run #20） | `release` | 新建 `v1.1.0`，`prerelease=false`、`draft=false`、`published_at=04:54:26`，5 个附件 `updated_at=04:54:27–29` |
+
+| `v1.1.0` 附件 | 字节 |
+| --- | --- |
+| `app-arm64-v8a-release.apk`（平板优先） | 18,302,930 |
+| `app-armeabi-v7a-release.apk` | 15,755,052 |
+| `app-x86_64-release.apk` | 19,794,393 |
+| `app-release.apk`（通用包） | 52,775,817 |
+| `apk-sha256.txt` | 357 |
+
+- ✅ **Latest 换人了**：`/releases/latest` 返回 `v1.1.0`，标题「时笺 TimeNote v1.1.0（Android 可安装包）」，正文首行「对应提交 `7a715c8`」+ `RELEASE-NOTES.md` 全文（这一轮的说明改成了「v1.1.0 新加 / v1.0.0 已有」两段）。`v1.0.0` 那条没被动，仍是非预发布 + 5 个附件。
+- ✅ **同轮互证**：`dev-build` 与 `v1.1.0` 各自的 `apk-sha256.txt` 四行，与 API 在同一轮 asset 上给的 `digest` 逐字相同（4 个包全对得上）。
+- ✅ **「检查更新」指向这一轮**：`dev-build/dev-build-sha.txt` 取回来是 `7a715c889531bb109415881a731bcb9ffe85d748`（41 字节），与取证当时的 `main` HEAD、与两个 run 的 `head_sha` 三者逐字相同。**这条会随下一次推 main 移动**（run #16 那次已经演示过「推文档提交也会跑」），核对时看 `dev-build` 正文首行的「最新提交」而不是记死 `7a715c8`。
+- ⚠️ **同一提交、两轮构建 = 字节数全同、sha256 全不同**（`v1.0.0` 那条的老现象，这轮再中一次）：`dev-build` 与 `v1.1.0` 四个包字节逐个相同（arm64 都是 18,302,930），arm64 的 digest 却是 `11369edd…` 对 `2fa72ad1…`。所以从 dev-build 覆盖升级到正式版仍要**先卸载**；跨轮比对 sha256 无意义。
+- 与 `v1.0.0` 比：arm64 从 18,237,326 涨到 18,302,930（+65,604 字节），这轮动的是 Dart 侧（令牌层 + 设置页 + 触感），没有新增资源文件。
+- ⚠️ **本机取证只能走 API**：`https://github.com/.../releases/download/...` 直链这台机器现在是**连不上**（Node 报 `Connect TimeoutError github.com:443`，不是之前记的「截断」）；357 / 41 字节的小文件走 `api.github.com/repos/.../releases/assets/{id}` + `Accept: application/octet-stream` 一次就过。`Accept: application/vnd.github.raw` 反而不生效（照样回 JSON），要 raw 就用 `octet-stream`。
 
 判读规则只有一条，两种红叉都适用：**看 `releases/tags/dev-build` 的 asset 列表齐不齐，不看 run 的红叉**；顺带对一下 `dev-build-sha.txt` 的内容是否等于 `main` 的 HEAD —— run #17 就是正文已被 `gh release edit` 改成 `2552bad`、而 `dev-build-sha.txt` 还停在 `d4c8d66`，说明文字和附件能来自不同轮。
 
@@ -282,7 +304,7 @@ git tag -a v1.0.0 -m "..." && git push --follow-tags   # 另发一条正式版 R
 - **文字层另有一道兜底**：`muted` / `accent` 是皮肤给的装饰色，亮色版 11 套里 7 套的 `muted`、8 套的 `accent` 撑不起文字（其中 8 套把 alpha 拉满也不够，是明度问题不是透明度问题）。所以标签与文字按钮一律用派生的 `labelInk` / `accentInk`，`contrastRatio` / `ensureContrast` / `compositeOver` 三个函数就住在 `ui_style.dart`，测试把 22 套令牌 × {底色, 面板合成色} 钉在 ≥4.5:1。
 - **性能**：颗粒/团块/花纹是静态 `CustomPaint` + `RepaintBoundary`，与每秒重建的时钟子树分离，随机数按固定种子生成，不逐帧重算。
 - **已实机验证**：11 套风格在 Android 模拟器（Pixel 7 AVD，density 420，横屏 914x411 逻辑像素）逐套切过，整屏底色与数字底板确实随风格变化，切换前后截图对过；widget 侧另有 800×600 全矩阵冒烟（无异常、无溢出）。
-- **未验证**：鸿蒙侧 —— release HAP 未签名装不上真机，`serif`/`monospace` 在 HarmonyOS 的字体族映射因此没实测过（Android 侧已实测正常）。
+- **未验证**：鸿蒙侧 —— release HAP 未签名装不上真机，`serif`/`monospace` 在 HarmonyOS 的字体族映射因此没实测过（Android 侧已实测正常）。新默认的底色「跟随系统」同样没在鸿蒙真机验证：`flutter_ohos` 的 embedder 确实回传 `platformBrightness`（源码读过，见 [HANDOFF-OHOS.md](./HANDOFF-OHOS.md) §5 第 9 条），缺的是运行时取证。
 
 ## 🎨 字体（免费商用，放入 assets/fonts 并在 pubspec 声明）
 
@@ -302,6 +324,7 @@ git tag -a v1.0.0 -m "..." && git push --follow-tags   # 另发一条正式版 R
   - ⚠️ 边缘滑动开抽屉没单独实测（点按钮 `openEndDrawer()` 那条路径验过，滑动本身是 Scaffold 自带）。
 - [ ] 下载并打包 5 款免费商用字体（= 需求 R14：数字字体子集化，中文字体不动）
 - [x] **首个正式版已发布**：`v1.0.0`（2026-11-05，run #15 的 `release` 作业 9 步全绿，非预发布且 `--latest`）。以后发版 = 打 `v*` 注解标签再推，CI 单独构建；日常自测仍走 `dev-build` 那条（6 个附件）。
+- [x] **第二个正式版已发布**：`v1.1.0`（2026-11-06，第十一轮 HIG 改造，run #20 的 `release` 作业 9 步全绿，`/releases/latest` 已指向它；同一 commit 的 run #19 把 `dev-build` 也刷到了 `7a715c8`）。取证见上面「第四轮真实验证」。
 - [x] **设置页「手动检查更新」**（需求 R21）已上线：按下才发一次请求，比对 `dev-build-sha.txt`（实测内容与那一轮 `$GITHUB_SHA` 逐字相同），不自动下载。⚠️ 真机上按那一次的效果还没由用户确认过。
 - [ ] 还在排期的需求（编号来自需求清单，逐条待用户点头）：R2 页面居中、R3 三块色差、R4 横/竖排向三选、R6 显示单位勾选、R9 待办增强（分类/到期/优先级）、R10 纪念日倒计时与到点提醒（要新增通知依赖，鸿蒙与 Android 不是一套）、R15 整页排版参考。R7 电流/水流特效与 R8「待办写不进去」由用户明确暂缓。
 - [x] 定下 `gradle-wrapper.jar` 与图标是否纳入版本库 —— 图标 5 个 dpi 已入库；wrapper 决定**不入库**，改为删掉 CI 的下载步骤（Flutter 自己会注入，已按干净检出实测），少一个 `raw.githubusercontent.com` 依赖。
