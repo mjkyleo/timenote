@@ -1,30 +1,34 @@
 # 鸿蒙（HarmonyOS / OHOS）构建 —— 进度交接
 
-> 记录时间：2026-11-05 01:35 初版；09:55 更新（递归根因已定位并修好）；**11:20 更新（release HAP 出包 + 包内配置复验 + Android 模拟器真机冒烟 + 修掉横屏键盘压瘪弹窗，测试 62 → 64）**；**16:02 更新（CI run #10 真绿：android 13 步全 success、dev-build 5 个附件、`apk-sha256.txt` 4 行；顺带挖出 run #9 红叉的根因是 `gh release view --json prerelease` 字段名写错，正确叫 `isPrerelease`）**；**16:25 更新（run #11 复跑同样全绿、dev-build 那条 warning 注解消失 = 摘要日志推断已能打；并实测 `--clobber` 会换 asset id、同名附件字节相同但 sha256 每轮都变）**；**16:33 更新（run #11 的 arm64 包整份下载成功，sha256 与同一轮清单逐字相同 = 字节级完整性核对补上了；本机直链会被截，要走 assets API 断点续传，实测 8 轮）**；**23:50 更新（第八/九轮代码之后本机 Android 与鸿蒙两条出包链全部重跑一遍，数字换到 `52e4bf3`：arm64 APK 18,245,379 / release HAP 23,093,027 / debug HAP 125,984,972；并实测 `tool/build_hap.sh` 那句新加的 `--dart-define=BUILD_SHA` 真的落进了包：release 的 `libapp.so` 与 debug 的 `kernel_blob.bin` 里各查到 1 次当前 commit）**；**03:0x 更新（run #17 把 dev-build 传成 4 个附件的残缺已修好：CI 改成「上传 + 点名核对 + 最多 3 轮重试」，`b771a10` 推上去触发 run #18 `success`，6 个附件同源同一轮）**；**14:01 更新（第十二轮 R4：不再强制横屏，新增开始页与横/竖二选，测试 209 → 214，版本 `1.2.0+3`；`module.json5:24` 的 orientation 改成 `auto_rotation`，本轮 HAP 与 APK 都没重出包，见 §5 待办 1 的追加）**。下面的每一条数字/路径都是当场跑出来的。
+> 记录时间：2026-11-05 01:35 初版；09:55 更新（递归根因已定位并修好）；**11:20 更新（release HAP 出包 + 包内配置复验 + Android 模拟器真机冒烟 + 修掉横屏键盘压瘪弹窗，测试 62 → 64）**；**16:02 更新（CI run #10 真绿：android 13 步全 success、dev-build 5 个附件、`apk-sha256.txt` 4 行；顺带挖出 run #9 红叉的根因是 `gh release view --json prerelease` 字段名写错，正确叫 `isPrerelease`）**；**16:25 更新（run #11 复跑同样全绿、dev-build 那条 warning 注解消失 = 摘要日志推断已能打；并实测 `--clobber` 会换 asset id、同名附件字节相同但 sha256 每轮都变）**；**16:33 更新（run #11 的 arm64 包整份下载成功，sha256 与同一轮清单逐字相同 = 字节级完整性核对补上了；本机直链会被截，要走 assets API 断点续传，实测 8 轮）**；**23:50 更新（第八/九轮代码之后本机 Android 与鸿蒙两条出包链全部重跑一遍，数字换到 `52e4bf3`：arm64 APK 18,245,379 / release HAP 23,093,027 / debug HAP 125,984,972；并实测 `tool/build_hap.sh` 那句新加的 `--dart-define=BUILD_SHA` 真的落进了包：release 的 `libapp.so` 与 debug 的 `kernel_blob.bin` 里各查到 1 次当前 commit）**；**03:0x 更新（run #17 把 dev-build 传成 4 个附件的残缺已修好：CI 改成「上传 + 点名核对 + 最多 3 轮重试」，`b771a10` 推上去触发 run #18 `success`，6 个附件同源同一轮）**；**14:01 更新（第十二轮 R4：不再强制横屏，新增开始页与横/竖二选，测试 209 → 214，版本 `1.2.0+3`；`module.json5:24` 的 orientation 改成 `auto_rotation`，本轮 HAP 与 APK 都没重出包，见 §5 待办 1 的追加）**；**14:45 更新（第十二轮收尾：`5c2722c` 提交 → `v1.2.0` 标签发布（run #22/#23 全绿）→ 本机四个 APK + release HAP 全部重出（产物时间戳 14:13–14:20）。release HAP 23,191,729 B、`libapp.so` 5,768,112 B，包内 `module.json` 的 `orientation` 复验为 `auto_rotation`；顺带纠正一条老结论：`--release` 不带 `--no-codesign` 会 `EXIT=1` 且不复制到 `build/ohos/hap/`，带上了才是 `EXIT=0` + `√ Built`，见 §0 与 §5 待办 1）**。下面的每一条数字/路径都是当场跑出来的。
 
 ---
 
 ## 0. 一句话现状
 
 **`tool/build_hap.sh` 一键直出已打通，debug 与 `--release` 都跑过了**：第八/九轮代码之后（2026-11-05 23:41 / 23:43 两个产物时间戳，工作副本 `52e4bf3`，代码 == `947ecaf`）两条链路又各复跑一次，release（AOT）264.5 s / 23,093,027 B、debug 71.9 s / 125,984,972 B，两次 `EXIT=0`。这一轮还顺带验证了脚本里那句新增的 `--dart-define=BUILD_SHA`（此前从未跑过）：构建接受该参数并且 SHA 真的进了包（证据见下表「BUILD_SHA 进包」那一行）。
+
+**第十二轮（R4）之后在 `5c2722c` 又重出一次 release**：14:13–14:17 那次 `tool/build_hap.sh --release`（不带 `--no-codesign`）冷缓存 240.1 s，`assembleHap` 成功、`.hap` 生成，但签名步骤拿不到证书 → **`EXIT=1` 且没复制到 `build/ohos/hap/`**；14:41 再跑 `tool/build_hap.sh --release --no-codesign`，hvigor 命中增量 13.1 s、产物没重写，`EXIT=0` 且报 `√ Built build\ohos\hap\entry-default-unsigned.hap (22.1MB)`，两个落点 md5 相同（`7ee78c2a…`）。结果：`entry-default-unsigned.hap` **23,191,729 B**（比 `52e4bf3` 的 23,093,027 多 98,702），`libs/arm64-v8a/libapp.so` **5,768,112 B**（+98,304，全在 Dart 侧），`libflutter.so` 16,416,376 / `ets/modules.abc` 725,136 逐字节没动，21 个文件、未压缩合计 23,188,479，包内 `module.json` 的 `orientation` 已是 `auto_rotation`。
 剩下的不是构建问题，而是**签名**：`*-unsigned.hap` 装不上真机，调试证书要华为账号在 DevEco 里申请（见 §5 待办 6）。
 
 唯一的技术障碍（§3 的 `BATCH RECURSION exceeds STACK limits, Recursion Count=234`）根因是
 **`D:\flutter_ohos\bin\flutter` 这个 bash 启动器里的 `OS="$(uname -s)"` 污染了子进程树**，与参数长度、管道、shim 都无关。
 
-产物（已存在，勿删）—— **两条链路的落点不同，实测过**：debug 由工具复制到 `build/ohos/hap/`（日志里有 `√ Built build\ohos\hap\...`），release **不复制**，只留在 `ohos/entry/build/default/outputs/default/`（日志只打印签名提示）。两个落点用的是**同一个文件名** `entry-default-unsigned.hap`，所以后跑的那条会覆盖前一条在该目录的产物：23:43 的 debug 复跑之后，`outputs/default/` 和 `build/ohos/hap/` 现在躺的是同一份 debug（都是 125,984,972 B，时间戳一致），release 那份 23,093,027 B 已被就地覆盖 —— 要同时留两份，得在 release 跑完立刻改名收走。
+产物（已存在，勿删）—— 两个落点用的是**同一个文件名** `entry-default-unsigned.hap`，所以后跑的那条会覆盖前一条在该目录的产物：23:43 的 debug 复跑之后，`outputs/default/` 和 `build/ohos/hap/` 躺的是同一份 debug（都是 125,984,972 B，时间戳一致），release 那份 23,093,027 B 已被就地覆盖 —— 要同时留两份，得在 release 跑完立刻改名收走。
+
+⚠️ 这一段以前写的「debug 由工具复制到 `build/ohos/hap/`，**release 不复制**」**结论错了**，`5c2722c` 这轮实测出来：复制与不复制的分界不是 debug/release，而是 `--no-codesign` 有没有传。`--release` 单独跑 → 签名步骤非零退出，复制那步没走到；`--release --no-codesign` → `√ Built build\ohos\hap\...`，两处落点同一份。现在（14:41 之后）`build/ohos/hap/` 与 `outputs/default/` 都是那份 23,191,729 B 的 release，debug 的 125,984,972 B 已被覆盖。
 
 | 项 | 实测值 |
 | --- | --- |
-| 路径 | debug：`build/ohos/hap/entry-default-unsigned.hap`（工具从 `ohos/entry/build/default/outputs/default/` 拷过来）；release：只有 `ohos/entry/build/default/outputs/default/entry-default-unsigned.hap`，`build/ohos/hap/` 不会被更新 |
-| 大小（release，当前） | 23,093,027 字节（23:41，`52e4bf3`），包内 21 个文件、未压缩合计 23,089,777（`unzip -l` 实测）；`libs/arm64-v8a/libapp.so` 5,669,808 B（AOT，上一轮 5,325,744，+344,064 是这两轮新增的 Dart 代码）+ `libflutter.so` 16,416,376 B（逐字节没动）、`ets/modules.abc` 725,136 B（同样没动，ArkTS 层这轮没改），**无 `kernel_blob.bin`**。⚠️ 路径：release 只落在 `ohos/entry/build/default/outputs/default/entry-default-unsigned.hap`，工具在 release 分支只打印「请通过 DevEco Studio…配置调试签名」，**不复制到 `build/ohos/hap/`、也不报 `√ Built`**。 |
+| 路径 | 两处同名互盖，谁后跑谁留下。当前（`5c2722c`，14:41 之后）`build/ohos/hap/entry-default-unsigned.hap` 与 `ohos/entry/build/default/outputs/default/entry-default-unsigned.hap` 是同一份 release（md5 `7ee78c2a…`）。以前记的「release 只落在 `outputs/default/`，`build/ohos/hap/` 不会被更新」实为 `--release` 没带 `--no-codesign` → 非零退出、复制没执行，见上一段 |
+| 大小（release，当前 = `5c2722c`） | 23,191,729 字节（产物 14:17，14:41 复制到两个落点），包内 21 个文件、未压缩合计 23,188,479（`unzip -l` 实测）；`libs/arm64-v8a/libapp.so` 5,768,112 B（AOT，比上一轮 5,669,808 多 98,304，就是本轮新增的开始页 + 排向那条设置）+ `libflutter.so` 16,416,376 B（逐字节没动）、`ets/modules.abc` 725,136 B（同样没动，ArkTS 侧只改了 `module.json5` 的配置不是代码），**无 `kernel_blob.bin`**。上一轮（`52e4bf3`，2026-11-05 23:41）：23,093,027 B / 未压缩 23,089,777 / `libapp.so` 5,669,808 B。⚠️ 路径见上面「路径」那一行：release 落哪、有没有复制，取决于 `--no-codesign` |
 | release 包是不是当前代码 | 这条以前要靠符号名反推（上一轮 release 和改动前**字节数恰好相同**，只能用 `libapp.so` 里查 `autoMix` / `_hingedLeaf` 来证明不是没重编）。这一轮不用推了：包大小本身变了（22,748,875 → 23,093,027），而且直接把本轮 `git rev-parse HEAD` 的完整 SHA 拿去 `grep -ac` —— 见下面「BUILD_SHA 进包」那一行。旧取证保留：`build/ohos/intermediates/flutter/defaultRelease/arm64-v8a/app.so` 时间戳 = 本次构建。 |
-| BUILD_SHA 进包 | `tool/build_hap.sh` 现在会给 `flutter build hap` 追加 `--dart-define=BUILD_SHA=$(git rev-parse HEAD)`（和 CI 出 APK 同口径，设置页「检查更新」在鸿蒙包里有得比）。这句加进去之后一直没实跑过，本轮补上：**release** 解包 `unzip -o` 后 `grep -ac 52e4bf38fdaaa3b64daaaf7bdfcd219a541be980 libs/arm64-v8a/libapp.so` = **1**；**debug** 解出 `resources/rawfile/flutter_assets/kernel_blob.bin` 同样 `grep -ac` = **1**。两次构建都 `EXIT=0`，脚本里没有别的改动。 |
+| BUILD_SHA 进包 | `tool/build_hap.sh` 现在会给 `flutter build hap` 追加 `--dart-define=BUILD_SHA=$(git rev-parse HEAD)`（和 CI 出 APK 同口径，设置页「检查更新」在鸿蒙包里有得比）。这句加进去之后一直没实跑过，本轮补上：**release** 解包 `unzip -o` 后 `grep -ac 52e4bf38fdaaa3b64daaaf7bdfcd219a541be980 libs/arm64-v8a/libapp.so` = **1**；**debug** 解出 `resources/rawfile/flutter_assets/kernel_blob.bin` 同样 `grep -ac` = **1**。两次构建都 `EXIT=0`，脚本里没有别的改动。**`5c2722c` 这轮再测一次**：日志里那行就是 `--dart-define=BUILD_SHA=5c2722cf14a9c2275eaa2545804daafd069d4b43`，解包 `grep -c 5c2722cf14a9c2275eaa2545804daafd069d4b43 libs/arm64-v8a/libapp.so` = **1**（release；debug 包这轮没重跑，`kernel_blob.bin` 那条仍是 `52e4bf3` 的取证）。 |
 | 大小（debug） | 125,984,972 字节（23:43，`52e4bf3`；≈120 MB，24 个文件、未压缩合计 125,981,204），含 `kernel_blob.bin` 72,010,880 B（上一轮 71,840,168，+170,712）+ `libflutter.so` 38,896,320 B（没动）、`ets/modules.abc` 1,251,580 B（debug 版没压缩，比 release 的 725,136 大得多），`tool/build_hap.sh` 71.9 s `EXIT=0` |
 | 构建耗时 | 本轮：release 264.5 s（日志 23:41:37 收尾）/ debug 71.9 s（23:43:20）（`tool/build_hap.sh [--release]`；release 那轮慢是因为它撞上了 `pub get` 重新解析 11 个依赖 + hvigor 冷缓存，上一轮热缓存下是 107.2 s。此前一轮：debug 64.2 s / release 107.2 s） |
 | bundleName | `com.timenote.timenote`，versionName 1.0.0，`pack.info` 里 `"code":1` |
 | apiVersion | compatible 17 / target 26（`pack.info`），`runtimeOS HarmonyOS` |
-| deviceType | `["phone", "tablet"]`，ability `orientation: auto_rotation_landscape` —— **已在 release 重建后的包内复验**：`unzip -p ... module.json` 交出这两个值，`pack.info` 的 `deviceType` 同为 `["phone","tablet"]`（见 §5 待办 1）。⚠️ 第十二轮（R4）起源码已是 `auto_rotation`（`module.json5:24`），这一行的包内值属于 2026-11-05 那次重建（见 §5 待办 1），本轮未重新出包 |
+| deviceType | `["phone", "tablet"]`，ability `orientation` —— **`5c2722c` 这轮的 release 包内复验**：`unzip -p build/ohos/hap/entry-default-unsigned.hap module.json` 交出 `"orientation":"auto_rotation"`，`pack.info` 的 `deviceType` 是 `["phone","tablet"]`（`packages[0].deviceType` 同值）。以前那一版（2026-11-05 23:41 重建）包内是 `auto_rotation_landscape`，源码从第十二轮（R4）起改成 `auto_rotation`（`module.json5:24`），现在包内值与源码对上了 |
 | 图标 | 包内 `resources/base/media/{icon,app_icon}.png` 各 21,357 B，144×144 RGBA（源图 `assets/icon/timenote-launcher-icon-1024.png` 经 `tool/make_icons.py` 缩出） |
 | 资源 | 包内 `resources/rawfile/flutter_assets/` 有 `assets/data/quotes.json` 27,867 B、`assets/audio/alert.wav` 30,912 B、`NOTICES.Z`、2 个 shader —— 彩蛋文案与提示音确实入包 |
 | 签名 | 无（`build-profile.json5` 里 `signingConfigs: []`，产物是 `*-unsigned.hap`，`SignHap` 任务 3 ms 空跑） |
@@ -50,8 +54,9 @@
 `tool/ohos_env.sh` 是正本（Temp 里那份会被系统清理），单独手工跑 hvigor 时才需要手动 source；实测 `source` 后 `DEVECO_TOOLS_HOME` / `DEVECO_SDK_HOME` / `PUB_CACHE` 能正常传给 cmd。
 
 ```bash
-tool/build_hap.sh              # = flutter.bat build hap --debug --no-codesign --dart-define=BUILD_SHA=<HEAD>
-tool/build_hap.sh --release    # AOT，产物 23,093,027 B，落在 ohos/entry/build/default/outputs/default/（debug 是 125,984,972 B，另外复制一份到 build/ohos/hap/；同名文件，后跑的覆盖前跑的）
+tool/build_hap.sh                          # = flutter.bat build hap --debug --no-codesign --dart-define=BUILD_SHA=<HEAD>
+tool/build_hap.sh --release --no-codesign  # AOT，`5c2722c` 实测 23,191,729 B、EXIT=0，并同时复制到 build/ohos/hap/（两个落点同名互盖，后跑的覆盖前跑的）
+tool/build_hap.sh --release                # ⚠️ 少了 --no-codesign 会走去签名：产物照样生成但 EXIT=1，且不复制到 build/ohos/hap/（脚本的默认值 `--debug --no-codesign` 只在完全不传参数时生效）
 ```
 
 里面 4 件事不能少：
@@ -203,13 +208,13 @@ RunCommandUtil.run(r, undefined, true)   // spawnSync(cmd, ["/d","/c", r], {wind
 
 1. [x] `ohos/entry/src/main/module.json5`：`deviceTypes` → `["phone", "tablet"]`；ability 加 `"orientation": "auto_rotation_landscape"`（2026-11-05 改）。合法值已从 SDK schema `toolchains/modulecheck/module.json` 核对：`unspecified / landscape / portrait / follow_recent / landscape_inverted / portrait_inverted / auto_rotation / auto_rotation_landscape / auto_rotation_portrait / … / locked / auto_rotation_unspecified / follow_desktop`。App 本身当时（2026-11-05）在 `lib/main.dart:15` 已用 `SystemChrome.setPreferredOrientations` 锁横屏，两边一致。
    - ✅ 已在 2026-11-05 重建后的包内复验：`unzip -p build/ohos/hap/entry-default-unsigned.hap module.json` 交出 `"orientation":"auto_rotation_landscape"`，`pack.info` 的 `deviceType` 是 `["phone","tablet"]`（`packages[0].deviceType` 同值）。
-   - ⚠️ 【2026-11-06 第十二轮（R4）】这一条的「两边一致」已经作废：`lib/main.dart` 不再锁方向（现在是开始页问一次横/竖，点「开始」后由 `lib/flip_clock/clock_view.dart:46` 下发），`ohos/entry/src/main/module.json5:24` 也相应从 `"auto_rotation_landscape"` 改成 `"auto_rotation"`，让运行时的 `setPreferredOrientations` 说了算。embedder 侧的换算读过源码：`PlatformChannel.ets:473-476` 收 `SystemChrome.setPreferredOrientations` → `decodeOrientations`（`:71`）按位或，横屏两档（`0x08|0x02=0x0a`）落到 `AUTO_ROTATION_LANDSCAPE`（`:115`）、竖屏两档（`0x01|0x04=0x05`）落到 `AUTO_ROTATION_PORTRAIT`（`:108`），最后 `PlatformPlugin.ets:240-243` 调 `mainWindow.setPreferredOrientation`。**这轮没重新出包**，上面那条包内复验要重跑 `tool/build_hap.sh --release` 再 `unzip -p ... module.json` 才算数。
+   - ⚠️ 【2026-11-06 第十二轮（R4）】这一条的「两边一致」已经作废：`lib/main.dart` 不再锁方向（现在是开始页问一次横/竖，点「开始」后由 `lib/flip_clock/clock_view.dart:46` 下发），`ohos/entry/src/main/module.json5:24` 也相应从 `"auto_rotation_landscape"` 改成 `"auto_rotation"`，让运行时的 `setPreferredOrientations` 说了算。embedder 侧的换算读过源码：`PlatformChannel.ets:473-476` 收 `SystemChrome.setPreferredOrientations` → `decodeOrientations`（`:71`）按位或，横屏两档（`0x08|0x02=0x0a`）落到 `AUTO_ROTATION_LANDSCAPE`（`:115`）、竖屏两档（`0x01|0x04=0x05`）落到 `AUTO_ROTATION_PORTRAIT`（`:108`），最后 `PlatformPlugin.ets:240-243` 调 `mainWindow.setPreferredOrientation`。**包内复验已在 2026-11-06 14:41 补上**：`5c2722c` 的 release 包重新出后，`unzip -p build/ohos/hap/entry-default-unsigned.hap module.json` 交出 `"orientation":"auto_rotation"`，`pack.info` 的 `deviceType` 仍是 `["phone","tablet"]` —— 包内值与源码对上了。剩下的只有「真机上转屏行为」要华为账号签好再装。
 2. [x] 文案：`EntryAbility_label` / `EntryAbility_desc` / `module_desc` → 「时笺」，`AppScope/.../string.json` 的 `app_name` → 「时笺」，`vendor` `example` → `mjkyleo`。与 Android 的 `android:label="时笺"`、`applicationId="com.timenote.timenote"` 对齐。
    - `versionCode` 疑点已核实：`AppScope/app.json5` 写 `1000000`，`pack.info` 里是 `"code":1`（等于 pubspec `1.0.0+1` 的 build 号）→ **hvigor 没按 app.json5 取值**，版本以 pubspec 为准。2026-11-05 重建后复验仍是 `"code":1`，没被改回。
 3. [x] 图标：源图从 `vibe_images/` 挪进仓库并改名 `assets/icon/timenote-launcher-icon-1024.png`（1024×1024 RGB，777,354 字节，深板岩底 + 琥珀翻页板；`assets/icon` 没写进 pubspec 的 `assets:`，不会打进包）。生成脚本收进 **`tool/make_icons.py`**（`py tool/make_icons.py`，Python 3.11.9 + Pillow 12.2.0），实测重跑产出 md5 稳定：
    - Android：`android/app/src/main/res/mipmap-{mdpi 48,hdpi 72,xhdpi 96,xxhdpi 144,xxxhdpi 192}/ic_launcher.png`（此前仓库里**一个 mipmap 都没有**，`AndroidManifest.xml` 的 `@mipmap/ic_launcher` 全靠 CI 现编占位图）
    - 鸿蒙：`ohos/entry/src/main/resources/base/media/icon.png`、`ohos/AppScope/resources/base/media/app_icon.png`（模板原图 144×144，保持同尺寸）
-4. [x] 递归问题：根因 = `bin/flutter` 污染 `OS`，见 §3。`tool/build_hap.sh` 一键直出 —— 本日实跑两次均 `EXIT=0`（debug、`--release`），不再有 `Recursion Count` 报错。
+4. [x] 递归问题：根因 = `bin/flutter` 污染 `OS`，见 §3。`tool/build_hap.sh` 一键直出 —— 本日实跑两次均 `EXIT=0`（debug、`--release`），不再有 `Recursion Count` 报错。（⚠️ 2026-11-06 更正：那次 `--release` 的 `EXIT=0` 说明当时带了 `--no-codesign` 或走的默认参数；`--release` **单独**跑在 `5c2722c` 两次都是 `EXIT=1`，见 §0 与 README「本机出包（鸿蒙）」。递归这条本身仍然成立。）
 5. [x] `--release` 构建（AOT）：`tool/build_hap.sh --release` → 264.5 s（23:41，工作副本 `52e4bf3`），`entry-default-unsigned.hap` 23,093,027 字节（对比 debug 125,984,972 字节）。包内换成了 `libs/arm64-v8a/libapp.so` 5,669,808 B + `libflutter.so` 16,416,376 B，`kernel_blob.bin` 不再存在，文件数 24 → 21。上一轮（14:29–14:31，当时工作树内容 == `cdceae9`，那批改动 14:50 才落成提交）的同一项是 107.2 s / 22,748,875 B / `libapp.so` 5,325,744 B，当时的「字节数恰好相同」靠符号名反推 —— 这一轮大小与 AOT 产物都随代码变了，且新增的 `--dart-define=BUILD_SHA` 在两种包里都查得到（见 §0「BUILD_SHA 进包」）。
    - ⚠️ 仍未做：release HAP 的**真机运行验证** —— 未签名包装不上去，这条要等华为调试证书（待办 6）。
 6. [ ] 签名边界（**诚实写进 README，不能假装能装**）：调试证书/Profile 需要华为账号登录 DevEco 申请；`signingConfigs: []` 出来的 `*-unsigned.hap` **装不上真机**。另外 `ohos/build-profile.json5` 第 4 行 `signingConfigs: []` 与第 8 行 `products[0].signingConfig: "default"` **名字对不上**（指向一个不存在的配置名）—— 实测这**不会**让构建失败（debug/release 两次都 `EXIT=0`，hvigor 只是不签），但配好签名时必须要在 `signingConfigs` 里补一个同名（`"default"`）条目。
@@ -281,6 +286,13 @@ RunCommandUtil.run(r, undefined, true)   // spawnSync(cmd, ["/d","/c", r], {wind
   - ✅ **残缺已恢复（`b771a10` 推上去，run #18 id `42153387930` `conclusion=success`）**：本机没有 `gh`、没有可调 Actions 的 token，所以 `Rerun failed jobs` 这条路走不通，恢复只能靠再推一次 main —— 已按这个执行。`android` 作业无一步非 success（`ios`/`release` 按设计 skipped），annotations 只剩 GitHub 自己那 2 条 boilerplate；`dev-build` 回到 6 个附件，`updated_at` 全在 `03:00:49–03:00:51` 同一轮，`apk-sha256.txt` 四行与 API 每个 asset 的 `digest` 逐字相同，`dev-build-sha.txt` == `b771a10749447c0ba356ed0965658307cee017cc`（本地与远端 main 一致），正文首行也写「对应提交：`b771a10`」= 说明文字与附件重新同源。⚠️ 分不清是第 1 轮就过还是重试后过（日志正文要 admin，实测 403），能确认的只有「6 件齐全 + 没有 `::error::`」。
   - 文档行号逐条对账（第十轮只校了数字，这轮校 `path:NNN`）：改掉 10 处失效引用 —— `clock_view.dart:253→319`、`flip_renderer.dart:37→flip_card_widget.dart:359`（`_FlipTransform` 这个类已不存在）、`:177→1451`、`:14→19`、`:56→164`、`:40→148`、`:399→1424`、`flip_card_widget.dart:149/223/272/205→172/245/283/228`、`settings_page.dart:47/51/183/52/144→51/55/244/55/143`、`build-apk.yml:48-53/65/106→55-58/70/119-124`、`clock_view.dart:154→169`。另外「卡片标签 `Flexible` + 省略号」早已不在 `settings_page.dart`，现址 `style_picker.dart:52`。
   - 核对后**没改**的：`clock_providers.dart:78/96/97`、`app_providers.dart:139`、`enum_def.dart:13`、`style_picker.dart:217`、`flip_card_widget.dart:155`、`clock_view.dart:100/106/326/357/363/370`、`egg_display.dart:33/61`、`settings_page.dart:177-186/349-440/383-393`、`main.dart:15`、`build_hap.sh:31`、SDK 侧 `dialog.dart:268`、`gradle_utils.dart:237-239/261-264`、`flutter_cache.dart:539`。带轮次标签的历史引用（`git show 7abb6fd:...`、`app_widget_test.dart:384` 那个已删的 `.first`、`egg_display.dart:23` 的旧公式）保持原样，改了就是造假。
+
+- [x] 第十二轮（R4 开始页 + 发布 v1.2.0，2026-11-06）：用户原话「不要强制横屏，可以设置一个开始按钮，点击后（设置了可选横屏还是竖屏，默认横屏），然后开始，记得根据改动大小升级版本」→ 做的是两档（横/竖），R4 原清单的「自动」档没落地。代码与测试见 REVIEW §十九；这一条记发布链与产物复验。
+  - 流程：`main`（`216f7e9`）开 `feat/start-screen-orientation` → 提交 `5c2722c`（19 文件 `514/39`，作者与 committer 都是 noreply）→ 推分支 → `git checkout main && git merge --ff-only`（`Updating 216f7e9..5c2722c`，无合并提交）→ 推 main → 推注解标签 `v1.2.0`（tag 对象 `222cfd9`，tagger 同邮箱）→ 远端 + 本地删分支。推送一律 `GIT_SSH_COMMAND='ssh -i ~/.ssh/git_ssh_key -o IdentitiesOnly=yes -p 443' git push ssh://git@ssh.github.com:443/mjkyleo/timenote.git <ref>`，`origin` 没动。
+  - `ios/Runner/GeneratedPluginRegistrant.{h,m}` 这次**没有** `git checkout --` 还原，而是留在工作树里不进 add（依据同样是 `git diff --ignore-cr-at-eol --stat -- ios` 空）；`git diff --cached --stat` 落在 19 行，与计划一致。
+  - `git ls-remote` 对账：`refs/heads/main` = `5c2722c…`、`refs/tags/v1.2.0^{}` = `5c2722c…`、`refs/heads/feat/*` 已空；本地 `refs/remotes/origin/{main,feat/...}` 用 `git update-ref` 手工对齐（推送走的是显式 URL，不会自动更新跟踪引用）。
+  - 云端：run #22（推 main，`android` 13 步 success）+ run #23（推标签，`release` 12 步 success）；Release `v1.2.0` id `436167598`、`prerelease=false`、5 个附件、`published_at=06:15:37`；`dev-build` 6 附件、`dev-build-sha.txt` == 本地 HEAD。逐条见 REVIEW §二十 / README「第五轮真实验证」。
+  - 本机产物在提交之后重出（`--dart-define=BUILD_SHA` 才拿得到当轮 commit）：APK 四个 + release HAP 23,191,729 B，包内 `module.json` = `auto_rotation`、`pack.info.deviceType` = `["phone","tablet"]`、`libapp.so` 里 SHA 命中 1 次。
 
 - [x] 当前工作树（2026-11-05 第三轮改动，**已提交并推送**）：提交 `cdceae9`「feat: 翻页动画重做（8 种·绕中缝铰链）+ 沉浸式待机，鸿蒙工程入库」，`59 files changed, 2188 insertions(+), 275 deletions(-)`。
   - 提交前实测：`git status --short` = 17 `M` + 9 `??`；`ios/Runner/GeneratedPluginRegistrant.{h,m}` 这 2 个 CRLF 假差异在 `git add` 前用 `git checkout -- ios` 还原（依据：`git diff --stat --ignore-cr-at-eol -- ios` 零行 stat，只吐 warning），所以最终提交是 **15 个 M + 44 个新文件 = 59**，与 `git diff --cached --name-only | wc -l` 一致；暂存后 `git status --short | grep -vE "^[MA]  "` 为空，确认没漏也没多。
@@ -373,14 +385,14 @@ await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
 
 ```bash
 cd /d/Phase3/Projects/timenote
-ls -la ohos/entry/build/default/outputs/default/         # 当前是 23:43 的 debug = 125,984,972 B（release 那份 23,093,027 B 已被同名覆盖，见 §0）
-ls -la build/ohos/hap/                                   # debug 未签名 HAP = 125,984,972 B（`52e4bf3`，23:43）；release 不会写这里
+ls -la ohos/entry/build/default/outputs/default/         # 当前是 5c2722c 的 release = 23,191,729 B（14:17 产物；同名覆盖，见 §0）
+ls -la build/ohos/hap/                                   # 与上面同一份（md5 7ee78c2a…）；只有带 --no-codesign 的那次才会写到这里
 md5sum /e/command-line-tools/ohpm/bin/ohpm.bat           # 应为 3481f1c9ec50a2e05fa4ad42ca6b8dc6（探针已还原）
 ls /e/command-line-tools/ohpm/bin/                       # 只该有 init init.bat ohpm ohpm.bat pm-cli.js，无 probe/real
 tool/build_hap.sh 2>&1 | tail -4                         # 应 √ Built build\ohos\hap\entry-default-unsigned.hap.
-ls -la build/app/outputs/flutter-apk/                     # 5 个 apk，arm64-v8a-release = 18,245,379 B（`52e4bf3` 本机 23:32 重出）
+ls -la build/app/outputs/flutter-apk/                    # arm64 18,376,683 / v7a 15,763,273 / x86_64 19,802,610 / fat 52,849,574（`5c2722c` 本机 14:13–14:20 重出）+ debug 183,056,489（`52e4bf3`，本轮没重跑）
 ```
 
 **别再用 `flutter build hap`（bash 启动器）验证递归** —— 那条路必然复现 `Recursion Count=234`，是 `OS` 污染，不是回归。
-Android 侧自检：`/d/dev/flutter/bin/flutter.bat analyze`（No issues found）+ `/d/dev/flutter/bin/flutter.bat test`（**64 例**）。
+Android 侧自检：`/d/dev/flutter/bin/flutter.bat analyze`（No issues found）+ `/d/dev/flutter/bin/flutter.bat test`（第十二轮起 **214 例**；64 例是 2026-11-05 上午那一版）。
 

@@ -896,7 +896,72 @@ YAML 侧照例本机验过：`py` + PyYAML `safe_load` 通过，抽出这段 `ru
 ### 19.7 边界（没做到的部分）
 
 - **真机一次没跑**：横/竖切换的手感、`immersiveSticky` 在竖屏下是否还吃得满、鸿蒙 `auto_rotation` 的实际旋转行为，全都只有代码与 widget 层的保证。390×844 那条测的是「不报错、不溢出」，不是「好看了」。
-- **HAP 没重新出包**：`module.json5` 改了，包内 `module.json` 的 `orientation` 还没复验；APK 侧本轮没重出，README 里 `18,245,379` / `23,093,027` 那几个字节数还是 `52e4bf3` 那一轮的。出包要在提交之后跑，`--dart-define=BUILD_SHA` 才拿得到当轮 commit。
+- **HAP 没重新出包**：`module.json5` 改了，包内 `module.json` 的 `orientation` 还没复验；APK 侧本轮没重出，README 里 `18,245,379` / `23,093,027` 那几个字节数还是 `52e4bf3` 那一轮的。出包要在提交之后跑，`--dart-define=BUILD_SHA` 才拿得到当轮 commit。（**这一条下面那轮已经补上**：提交 `5c2722c` 之后本机四个 APK + release HAP 全部重出并解包复验，见 §二十。）
 - **「自动」这一档没做**：R4 原清单的第三档要的是跟随传感器。代码上已经预留了形状（`orientationsOf()` 是唯一出口），加一档就是再加一颗芯片 + 一个 `DeviceOrientation.values` 的档位，但没做，因为用户这句原话没要。
 - 竖屏下的 10 种数字风格与 8 种进度组件没跑观感矩阵（全矩阵那条只在 800×600 与横屏 914×411 上跑）。
 - `portraitDown` 在 iPhone 上无效（`Info.plist` 手机档没列 upside-down），这条是清单事实，不是本 App 的选择；真机上要不要支持得改 plist。
+
+---
+
+## 二十、第十二轮收尾：发布 v1.2.0 + 本机重出包（把 §19.7 欠的数字量回来）
+
+### 20.1 发版流程（按约定那条链走完）
+
+新分支 → 提交 → 推分支 → `--ff-only` 合 main → 推 main → 推注解标签 → 删分支，每一步都留了可核对的输出：
+
+| 步骤 | 实测 |
+| --- | --- |
+| 分支 | `feat/start-screen-orientation`（自 `main` 的 `216f7e9`） |
+| 提交 | `5c2722c`「feat: 开始页选横/竖屏再进入，不再强制横屏（R4）」，19 文件 `514/39` |
+| 作者 | `git log -1` 交出 `Ky <125885091+mjkyleo@users.noreply.github.com>`，committer 同值（`-c` 逐次覆盖，没动仓库配置） |
+| 排除项 | `ios/Runner/GeneratedPluginRegistrant.{h,m}` 两条 `git diff --ignore-cr-at-eol --stat -- ios` 为空 = 纯 CRLF 假差分，没进 add |
+| 推分支 / 合 main | `* [new branch]` → `git merge --ff-only` 交出 `Updating 216f7e9..5c2722c`（快进，无合并提交） |
+| 标签 | 注解标签 `v1.2.0`，tag 对象 `222cfd9`，`git for-each-ref` 的 tagger 同 noreply 邮箱，`v1.2.0^{commit}` = `5c2722c` |
+| 删分支 | 远端 `- [deleted] feat/start-screen-orientation`，本地 `-d` 通过（已合入） |
+| 远端对账 | `git ls-remote`：`refs/heads/main` = `5c2722c…`、`refs/tags/v1.2.0^{}` = `5c2722c…`、`refs/heads/feat/*` 空 |
+
+推送全部走 `ssh.github.com:443` + `git_ssh_key`（`GIT_SSH_COMMAND` 逐次给，`origin` 没改），推完手动 `git update-ref refs/remotes/origin/...` 让本地跟踪引用对上。
+
+### 20.2 云端两个 run（取证方式见 §九：`/actions/runs/{id}/logs` 免登录 403、`/actions/runs/{id}/annotations` 免登录 404，读注解要走 `/check-runs/{job_id}/annotations`）
+
+run #22（`42172623258`，推 main）：`android` 13 步全 `success`，`release`/`ios` skipped，06:09:07→06:15:26。
+run #23（`42172663212`，推标签）：`release` 12 步全 `success`，`android`/`ios` skipped，06:09:30→06:15:46。
+两个作业各 2 条注解：`Node.js 20 is deprecated`（warning）+ `ubuntu-latest` 迁移（notice），都不是本轮新增。
+
+Release `v1.2.0`：id `436167598`、`prerelease=false`、`draft=false`、`target_commitish=main`、`published_at=2026-11-06T06:15:37Z`，5 个附件（arm64 `18,368,630` / v7a `15,755,220` / x86_64 `19,794,561` / fat `52,841,521` / `apk-sha256.txt` `357`），正文首行「对应提交 `5c2722c`」。`/releases/latest` 已指向它；`v1.1.0` 没被动（`published_at=04:54:26`）。
+`dev-build`：`updated_at=06:15:21`，6 附件齐，`dev-build-sha.txt` 取回 = 本地 `git rev-parse HEAD`。
+同轮互证：`v1.2.0` arm64 清单行 `d1bf49cf…` == API asset `716130558` 的 `digest`；`dev-build` arm64 `06d053f7…` == asset `716129737`。字节全同、digest 全不同那条（§十四/§十八）**第三次复现**。
+
+正文逐字对过：`releases/436167598` 的 `body` 去掉首行「对应提交 `5c2722c`…」与空行后，与 `RELEASE-NOTES.md`（剥 CRLF）`diff` 无差异。⚠️ 这条差点被误判成乱码 —— `curl … | node -e 'process.stdout.write(body)' > 文件` 之后再 `diff`，「关于」在本机显示成 `关`；直接对 body 取 codepoint 才是真相：`5173 4e8e`，`body.includes("\uFFFD")` = false、计数 0。所以**判乱码要看 codepoint，不要用 Git Bash 管道里的中文渲染**（写进文件那一步就已经按 console 码页丢了字节）。
+
+### 20.3 本机重出包（`5c2722c` 之后，四个 APK + 一个 release HAP）
+
+| 产物 | 本轮 | 上一轮（`52e4bf3`，§十六） | 差 |
+| --- | --- | --- | --- |
+| `app-arm64-v8a-release.apk` | 18,376,683 | 18,245,379 | +131,304 |
+| `app-armeabi-v7a-release.apk` | 15,763,273 | 15,648,349 | +114,924 |
+| `app-x86_64-release.apk` | 19,802,610 | 19,736,842 | +65,768 |
+| `app-release.apk`（fat） | 52,849,574 | 52,538,042 | +311,532 |
+| release HAP | 23,191,729 | 23,093,027 | +98,702 |
+| └ `libs/arm64-v8a/libapp.so` | 5,768,112 | 5,669,808 | +98,304 |
+
+HAP 其余不变：`libflutter.so` 16,416,376、`ets/modules.abc` 725,136、无 `kernel_blob.bin`、21 个文件、未压缩合计 23,188,479。
+arm64 APK 拆解同步刷新：未压缩 18,727,546 / 66 文件，引擎 11,763,360（逐字节没动）+ `libapp.so` 5,899,144 = 17,662,504（占 94%），自己的素材仍只有 `quotes.json` 27,867 + `alert.wav` 30,912。
+
+包内复验（§19.7 欠的那条）：`unzip -p build/ohos/hap/entry-default-unsigned.hap module.json` → `"orientation":"auto_rotation"`；`pack.info` → `"deviceType":["phone","tablet"]`（`packages[0]` 同值）；`libapp.so` 里 `grep -c 5c2722cf…` = 1。
+
+### 20.4 新坑：`--release` 少了 `--no-codesign` 会「构建成功但退出码 1、还不复制」
+
+`tool/build_hap.sh` 的参数拼装是 `args="${*:---debug --no-codesign}"` —— 那个默认值**只在完全不传参数时**生效。传了 `--release` 就只剩 `--release`，于是：
+
+- `tool/build_hap.sh --release` → `assembleHap` 跑完、`.hap` 生成在 `outputs/default/`，最后打印「请通过 DevEco Studio…配置调试签名」，**退出码 1**，`build/ohos/hap/` 没被更新。
+- `tool/build_hap.sh --release --no-codesign` → 多一行 `Warning: Building for device with codesigning disabled`，**退出码 0** 且报 `√ Built build\ohos\hap\entry-default-unsigned.hap (22.1MB)`，两处落点 md5 相同（`7ee78c2a…`）。
+
+**这条否掉了 §十六与 HANDOFF §0 之前的结论**（「release 分支工具不复制到 `build/ohos/hap/`」）：不是 release 不复制，是没带 `--no-codesign` 的那次在复制之前就非零退出了。文档已按新证据改口径，同时留下「两个落点同名互盖」这条仍然成立（本轮 release 跑完，`build/ohos/hap/` 那份 11-05 的 debug 125,984,972 B 就地被覆盖）。
+
+顺带一条环境事实（不影响产物，但影响后续跑测试）：鸿蒙那条链会临时写 `pubspec_overrides.yaml` 并让 pub 把 11 个依赖降版本（`meta 1.19.0→1.17.0`、`test_api 0.7.12→0.7.10` 等），`pubspec.lock` 虽已 gitignore，但降完的 lock 会影响紧接着的标准 SDK 构建 —— 所以标准 SDK 侧的复验要先 `flutter pub get` 复位：本轮跑完鸿蒙后 `pub get`（`EXIT=0`）→ `flutter analyze` **No issues found**（69.8 s）→ `flutter test` **214 例全绿**（00:34 `All tests passed!`），与 §19.6 的数字一致。
+
+### 20.5 还没做的
+
+- 真机横/竖切换、鸿蒙 `auto_rotation` 的实际旋转行为、设置里「检查更新」按下那一次 —— 仍待用户设备。
+- `--release` 不带 `--no-codesign` 的退出码 1 只在文档里记了口径，脚本本身没改（要不要在脚本里补默认值，等用户发话）。
