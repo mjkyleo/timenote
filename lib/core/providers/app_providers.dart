@@ -19,7 +19,7 @@ class AppSettingsState {
   /// 控件层是否 6 秒后自动隐藏（待机屏的沉浸式签名）；关掉就常驻
   final bool autoHideChrome;
 
-  /// 计时画面的排向，开始页选一次、设置里随时改（默认横屏，沿用原来的观感）
+  /// 待机屏的排向，设置里随时改（默认横屏，沿用原来的观感）；外壳三页不受它影响
   final AppOrientation orientation;
 
   AppSettingsState({

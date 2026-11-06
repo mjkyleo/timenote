@@ -1,6 +1,6 @@
 # 鸿蒙（HarmonyOS / OHOS）构建 —— 进度交接
 
-> 记录时间：2026-11-05 01:35 初版；09:55 更新（递归根因已定位并修好）；**11:20 更新（release HAP 出包 + 包内配置复验 + Android 模拟器真机冒烟 + 修掉横屏键盘压瘪弹窗，测试 62 → 64）**；**16:02 更新（CI run #10 真绿：android 13 步全 success、dev-build 5 个附件、`apk-sha256.txt` 4 行；顺带挖出 run #9 红叉的根因是 `gh release view --json prerelease` 字段名写错，正确叫 `isPrerelease`）**；**16:25 更新（run #11 复跑同样全绿、dev-build 那条 warning 注解消失 = 摘要日志推断已能打；并实测 `--clobber` 会换 asset id、同名附件字节相同但 sha256 每轮都变）**；**16:33 更新（run #11 的 arm64 包整份下载成功，sha256 与同一轮清单逐字相同 = 字节级完整性核对补上了；本机直链会被截，要走 assets API 断点续传，实测 8 轮）**；**23:50 更新（第八/九轮代码之后本机 Android 与鸿蒙两条出包链全部重跑一遍，数字换到 `52e4bf3`：arm64 APK 18,245,379 / release HAP 23,093,027 / debug HAP 125,984,972；并实测 `tool/build_hap.sh` 那句新加的 `--dart-define=BUILD_SHA` 真的落进了包：release 的 `libapp.so` 与 debug 的 `kernel_blob.bin` 里各查到 1 次当前 commit）**；**03:0x 更新（run #17 把 dev-build 传成 4 个附件的残缺已修好：CI 改成「上传 + 点名核对 + 最多 3 轮重试」，`b771a10` 推上去触发 run #18 `success`，6 个附件同源同一轮）**；**14:01 更新（第十二轮 R4：不再强制横屏，新增开始页与横/竖二选，测试 209 → 214，版本 `1.2.0+3`；`module.json5:24` 的 orientation 改成 `auto_rotation`，本轮 HAP 与 APK 都没重出包，见 §5 待办 1 的追加）**；**14:45 更新（第十二轮收尾：`5c2722c` 提交 → `v1.2.0` 标签发布（run #22/#23 全绿）→ 本机四个 APK + release HAP 全部重出（产物时间戳 14:13–14:20）。release HAP 23,191,729 B、`libapp.so` 5,768,112 B，包内 `module.json` 的 `orientation` 复验为 `auto_rotation`；顺带纠正一条老结论：`--release` 不带 `--no-codesign` 会 `EXIT=1` 且不复制到 `build/ohos/hap/`，带上了才是 `EXIT=0` + `√ Built`，见 §0 与 §5 待办 1）**。下面的每一条数字/路径都是当场跑出来的。
+> 记录时间：2026-11-05 01:35 初版；09:55 更新（递归根因已定位并修好）；**11:20 更新（release HAP 出包 + 包内配置复验 + Android 模拟器真机冒烟 + 修掉横屏键盘压瘪弹窗，测试 62 → 64）**；**16:02 更新（CI run #10 真绿：android 13 步全 success、dev-build 5 个附件、`apk-sha256.txt` 4 行；顺带挖出 run #9 红叉的根因是 `gh release view --json prerelease` 字段名写错，正确叫 `isPrerelease`）**；**16:25 更新（run #11 复跑同样全绿、dev-build 那条 warning 注解消失 = 摘要日志推断已能打；并实测 `--clobber` 会换 asset id、同名附件字节相同但 sha256 每轮都变）**；**16:33 更新（run #11 的 arm64 包整份下载成功，sha256 与同一轮清单逐字相同 = 字节级完整性核对补上了；本机直链会被截，要走 assets API 断点续传，实测 8 轮）**；**23:50 更新（第八/九轮代码之后本机 Android 与鸿蒙两条出包链全部重跑一遍，数字换到 `52e4bf3`：arm64 APK 18,245,379 / release HAP 23,093,027 / debug HAP 125,984,972；并实测 `tool/build_hap.sh` 那句新加的 `--dart-define=BUILD_SHA` 真的落进了包：release 的 `libapp.so` 与 debug 的 `kernel_blob.bin` 里各查到 1 次当前 commit）**；**03:0x 更新（run #17 把 dev-build 传成 4 个附件的残缺已修好：CI 改成「上传 + 点名核对 + 最多 3 轮重试」，`b771a10` 推上去触发 run #18 `success`，6 个附件同源同一轮）**；**14:01 更新（第十二轮 R4：不再强制横屏，新增开始页与横/竖二选，测试 209 → 214，版本 `1.2.0+3`；`module.json5:24` 的 orientation 改成 `auto_rotation`，本轮 HAP 与 APK 都没重出包，见 §5 待办 1 的追加）**；**14:45 更新（第十二轮收尾：`5c2722c` 提交 → `v1.2.0` 标签发布（run #22/#23 全绿）→ 本机四个 APK + release HAP 全部重出（产物时间戳 14:13–14:20）。release HAP 23,191,729 B、`libapp.so` 5,768,112 B，包内 `module.json` 的 `orientation` 复验为 `auto_rotation`；顺带纠正一条老结论：`--release` 不带 `--no-codesign` 会 `EXIT=1` 且不复制到 `build/ohos/hap/`，带上了才是 `EXIT=0` + `√ Built`，见 §0 与 §5 待办 1）**；**17:02 更新（第十三轮：把「功能清单」组织成一个 App —— 底部三标签「时间 / 待办 / 设置」+ 独立待机屏，开始页与待办抽屉整个删掉，测试 214 → **224**（先补到 222，模拟器视验发现两个真缺陷各 +1），版本 `1.3.0+4`；⚠️ **release APK 与 HAP 都没重出包**，下面所有 release 字节数仍是 `5c2722c`（v1.2.0）的产物，不代表当前代码；为视验重出了两次 **x86_64 debug**（最终 95,766,874 B，versionCode 4004）。本轮取证见 REVIEW.md §二十一（视验截图结论在 §21.9），文件旧→新映射见 §6.8）**。下面的每一条数字/路径都是当场跑出来的。
 
 ---
 
@@ -208,19 +208,20 @@ RunCommandUtil.run(r, undefined, true)   // spawnSync(cmd, ["/d","/c", r], {wind
 
 1. [x] `ohos/entry/src/main/module.json5`：`deviceTypes` → `["phone", "tablet"]`；ability 加 `"orientation": "auto_rotation_landscape"`（2026-11-05 改）。合法值已从 SDK schema `toolchains/modulecheck/module.json` 核对：`unspecified / landscape / portrait / follow_recent / landscape_inverted / portrait_inverted / auto_rotation / auto_rotation_landscape / auto_rotation_portrait / … / locked / auto_rotation_unspecified / follow_desktop`。App 本身当时（2026-11-05）在 `lib/main.dart:15` 已用 `SystemChrome.setPreferredOrientations` 锁横屏，两边一致。
    - ✅ 已在 2026-11-05 重建后的包内复验：`unzip -p build/ohos/hap/entry-default-unsigned.hap module.json` 交出 `"orientation":"auto_rotation_landscape"`，`pack.info` 的 `deviceType` 是 `["phone","tablet"]`（`packages[0].deviceType` 同值）。
-   - ⚠️ 【2026-11-06 第十二轮（R4）】这一条的「两边一致」已经作废：`lib/main.dart` 不再锁方向（现在是开始页问一次横/竖，点「开始」后由 `lib/flip_clock/clock_view.dart:46` 下发），`ohos/entry/src/main/module.json5:24` 也相应从 `"auto_rotation_landscape"` 改成 `"auto_rotation"`，让运行时的 `setPreferredOrientations` 说了算。embedder 侧的换算读过源码：`PlatformChannel.ets:473-476` 收 `SystemChrome.setPreferredOrientations` → `decodeOrientations`（`:71`）按位或，横屏两档（`0x08|0x02=0x0a`）落到 `AUTO_ROTATION_LANDSCAPE`（`:115`）、竖屏两档（`0x01|0x04=0x05`）落到 `AUTO_ROTATION_PORTRAIT`（`:108`），最后 `PlatformPlugin.ets:240-243` 调 `mainWindow.setPreferredOrientation`。**包内复验已在 2026-11-06 14:41 补上**：`5c2722c` 的 release 包重新出后，`unzip -p build/ohos/hap/entry-default-unsigned.hap module.json` 交出 `"orientation":"auto_rotation"`，`pack.info` 的 `deviceType` 仍是 `["phone","tablet"]` —— 包内值与源码对上了。剩下的只有「真机上转屏行为」要华为账号签好再装。
+   - ⚠️ 【2026-11-06 第十二轮（R4）】这一条的「两边一致」已经作废：`lib/main.dart` 不再锁方向（现在是开始页问一次横/竖，点「开始」后由 `lib/flip_clock/clock_view.dart:46` 下发），`ohos/entry/src/main/module.json5:24` 也相应从 `"auto_rotation_landscape"` 改成 `"auto_rotation"`，让运行时的 `setPreferredOrientations` 说了算。embedder 侧的换算读过源码：`PlatformChannel.ets:473-476` 收 `SystemChrome.setPreferredOrientations` → `decodeOrientations`（`:71`）按位或，横屏两档（`0x08|0x02=0x0a`）落到 `AUTO_ROTATION_LANDSCAPE`（`:115`）、竖屏两档（`0x01|0x04=0x05`）落到 `AUTO_ROTATION_PORTRAIT`（`:108`），最后 `PlatformPlugin.ets:240-243` 调 `mainWindow.setPreferredOrientation`。**包内复验已在 2026-11-06 14:41 补上**：`5c2722c` 的 release 包重新出后，`unzip -p build/ohos/hap/entry-default-unsigned.hap module.json` 交出 `"orientation":"auto_rotation"`，`pack.info` 的 `deviceType` 仍是 `["phone","tablet"]` —— 包内值与源码对上了。剩下的只有「真机上转屏行为」要华为账号签好再装。（⚠️ 第十三轮追加：开始页已整个删除，排向/沉浸两句现在集中在 `lib/core/system_ui.dart:14/:22`，由 `app_shell.dart:32` 与 `standby_view.dart:48/:66` 调用；`module.json5` 的 `auto_rotation` 不用改，外壳三页跟随系统、只有待机屏锁向。见 §6.8。）
 2. [x] 文案：`EntryAbility_label` / `EntryAbility_desc` / `module_desc` → 「时笺」，`AppScope/.../string.json` 的 `app_name` → 「时笺」，`vendor` `example` → `mjkyleo`。与 Android 的 `android:label="时笺"`、`applicationId="com.timenote.timenote"` 对齐。
    - `versionCode` 疑点已核实：`AppScope/app.json5` 写 `1000000`，`pack.info` 里是 `"code":1`（等于 pubspec `1.0.0+1` 的 build 号）→ **hvigor 没按 app.json5 取值**，版本以 pubspec 为准。2026-11-05 重建后复验仍是 `"code":1`，没被改回。
 3. [x] 图标：源图从 `vibe_images/` 挪进仓库并改名 `assets/icon/timenote-launcher-icon-1024.png`（1024×1024 RGB，777,354 字节，深板岩底 + 琥珀翻页板；`assets/icon` 没写进 pubspec 的 `assets:`，不会打进包）。生成脚本收进 **`tool/make_icons.py`**（`py tool/make_icons.py`，Python 3.11.9 + Pillow 12.2.0），实测重跑产出 md5 稳定：
    - Android：`android/app/src/main/res/mipmap-{mdpi 48,hdpi 72,xhdpi 96,xxhdpi 144,xxxhdpi 192}/ic_launcher.png`（此前仓库里**一个 mipmap 都没有**，`AndroidManifest.xml` 的 `@mipmap/ic_launcher` 全靠 CI 现编占位图）
    - 鸿蒙：`ohos/entry/src/main/resources/base/media/icon.png`、`ohos/AppScope/resources/base/media/app_icon.png`（模板原图 144×144，保持同尺寸）
-4. [x] 递归问题：根因 = `bin/flutter` 污染 `OS`，见 §3。`tool/build_hap.sh` 一键直出 —— 本日实跑两次均 `EXIT=0`（debug、`--release`），不再有 `Recursion Count` 报错。（⚠️ 2026-11-06 更正：那次 `--release` 的 `EXIT=0` 说明当时带了 `--no-codesign` 或走的默认参数；`--release` **单独**跑在 `5c2722c` 两次都是 `EXIT=1`，见 §0 与 README「本机出包（鸿蒙）」。递归这条本身仍然成立。）
+4. [x] 递归问题：根因 = `bin/flutter` 污染 `OS`，见 §3。`tool/build_hap.sh` 一键直出 —— 本日实跑两次均 `EXIT=0`（debug、`--release`），不再有 `Recursion Count` 报错。（⚠️ 2026-11-06 更正：那次 `--release` 的 `EXIT=0` 说明当时带了 `--no-codesign` 或走的默认参数；`--release` **单独**跑在 `5c2722c` 两次都是 `EXIT=1`，见 §0 与 §6.5（原指向的 README「本机出包（鸿蒙）」一节第十三轮已精简掉）。递归这条本身仍然成立。）
 5. [x] `--release` 构建（AOT）：`tool/build_hap.sh --release` → 264.5 s（23:41，工作副本 `52e4bf3`），`entry-default-unsigned.hap` 23,093,027 字节（对比 debug 125,984,972 字节）。包内换成了 `libs/arm64-v8a/libapp.so` 5,669,808 B + `libflutter.so` 16,416,376 B，`kernel_blob.bin` 不再存在，文件数 24 → 21。上一轮（14:29–14:31，当时工作树内容 == `cdceae9`，那批改动 14:50 才落成提交）的同一项是 107.2 s / 22,748,875 B / `libapp.so` 5,325,744 B，当时的「字节数恰好相同」靠符号名反推 —— 这一轮大小与 AOT 产物都随代码变了，且新增的 `--dart-define=BUILD_SHA` 在两种包里都查得到（见 §0「BUILD_SHA 进包」）。
    - ⚠️ 仍未做：release HAP 的**真机运行验证** —— 未签名包装不上去，这条要等华为调试证书（待办 6）。
 6. [ ] 签名边界（**诚实写进 README，不能假装能装**）：调试证书/Profile 需要华为账号登录 DevEco 申请；`signingConfigs: []` 出来的 `*-unsigned.hap` **装不上真机**。另外 `ohos/build-profile.json5` 第 4 行 `signingConfigs: []` 与第 8 行 `products[0].signingConfig: "default"` **名字对不上**（指向一个不存在的配置名）—— 实测这**不会**让构建失败（debug/release 两次都 `EXIT=0`，hvigor 只是不签），但配好签名时必须要在 `signingConfigs` 里补一个同名（`"default"`）条目。
    - 同一处顺带核对过：`compatibleSdkVersion "5.0.5(17)"` / `targetSdkVersion "26.0.0"` 与包内 `pack.info` 的 `apiVersion.compatible 17 / target 26` 一致。
 7. [x] 回归：主 flutter（`D:\dev\flutter`，3.47.8）`flutter analyze` → `No issues found! (ran in 9.9s)`（分析缓存已热；冷缓存那次是 71.8 s），`flutter test` → **64 例全绿**（`00:20 +64: All tests passed!`）。前提是把 audioplayers 的 git 覆盖挪出 `pubspec.yaml`（§3.5），否则编译直接失败。
 8. [x] README 鸿蒙章节：见 README.md「🖥 本机出包（鸿蒙）」—— 命令、`OS` 污染根因、覆盖注入、`tool/ohos_env.sh`、未签名边界、CI 拿不到鸿蒙工具链的原因都写了，平台表里鸿蒙那行标成「本机能出包，云端出不了」。**每条数字都用命令实测过**（本节 §0/§5 就是实测记录）。
+   - ⚠️ 【第十三轮】README 按用户要求精简到 **75 行、只讲功能**，上面那一节连同平台表一起删了（内容并未丢：命令与根因在本文 §1/§3/§6.5，取证在 REVIEW.md）。现在 README 里只剩一句指向本文的链接，以及「还没做」里的「鸿蒙版签名与真机验证」。要找鸿蒙出包步骤，**从本文 §1 开始读，别再去 README 找**。
    - 待办 8 剩下的只有 §7 的**提交推送**（需用户授权）与待办 6 的签名。
 9. [ ] **新默认底色「跟随系统」在鸿蒙上有没有真信号**（第十一轮 HIG 改造带来，见 REVIEW.md §18.3）：`lib/main.dart:55` 把 `ThemeBase.system` 翻成 `ThemeMode.system`，暗色与否取决于引擎向 `platformDispatcher` 回传的平台亮度。Android 侧这条走标准通道、无需担心。**鸿蒙侧源码查过了，通道是通的**（2026-11-06 在 `D:\flutter_ohos\engine\src\flutter\shell\platform\ohos\flutter_embedding\flutter\src\main\ets` 逐行读过，行号以下均为该目录内相对行号）：
    - 冷启动：`view/FlutterView.ets:999` 与 `:1104` 都调 `sendSettings()` → `:1114` → `embedding/ohos/Settings.ets:35`，其中 `:40` `.setPlatformBrightness(this.getThemeMode(mediaQuery))`；`getThemeMode`（`Settings.ets:50-60`）用 `mediaQuery.matchMediaSync('(dark-mode: true)')` 判暗色。
@@ -291,7 +292,7 @@ RunCommandUtil.run(r, undefined, true)   // spawnSync(cmd, ["/d","/c", r], {wind
   - 流程：`main`（`216f7e9`）开 `feat/start-screen-orientation` → 提交 `5c2722c`（19 文件 `514/39`，作者与 committer 都是 noreply）→ 推分支 → `git checkout main && git merge --ff-only`（`Updating 216f7e9..5c2722c`，无合并提交）→ 推 main → 推注解标签 `v1.2.0`（tag 对象 `222cfd9`，tagger 同邮箱）→ 远端 + 本地删分支。推送一律 `GIT_SSH_COMMAND='ssh -i ~/.ssh/git_ssh_key -o IdentitiesOnly=yes -p 443' git push ssh://git@ssh.github.com:443/mjkyleo/timenote.git <ref>`，`origin` 没动。
   - `ios/Runner/GeneratedPluginRegistrant.{h,m}` 这次**没有** `git checkout --` 还原，而是留在工作树里不进 add（依据同样是 `git diff --ignore-cr-at-eol --stat -- ios` 空）；`git diff --cached --stat` 落在 19 行，与计划一致。
   - `git ls-remote` 对账：`refs/heads/main` = `5c2722c…`、`refs/tags/v1.2.0^{}` = `5c2722c…`、`refs/heads/feat/*` 已空；本地 `refs/remotes/origin/{main,feat/...}` 用 `git update-ref` 手工对齐（推送走的是显式 URL，不会自动更新跟踪引用）。
-  - 云端：run #22（推 main，`android` 13 步 success）+ run #23（推标签，`release` 12 步 success）；Release `v1.2.0` id `436167598`、`prerelease=false`、5 个附件、`published_at=06:15:37`；`dev-build` 6 附件、`dev-build-sha.txt` == 本地 HEAD。逐条见 REVIEW §二十 / README「第五轮真实验证」。
+  - 云端：run #22（推 main，`android` 13 步 success）+ run #23（推标签，`release` 12 步 success）；Release `v1.2.0` id `436167598`、`prerelease=false`、5 个附件、`published_at=06:15:37`；`dev-build` 6 附件、`dev-build-sha.txt` == 本地 HEAD。逐条见 REVIEW §二十 / §9.10–9.12（原指向的 README「第五轮真实验证」一节第十三轮已精简掉，取证只在 REVIEW）。
   - 本机产物在提交之后重出（`--dart-define=BUILD_SHA` 才拿得到当轮 commit）：APK 四个 + release HAP 23,191,729 B，包内 `module.json` = `auto_rotation`、`pack.info.deviceType` = `["phone","tablet"]`、`libapp.so` 里 SHA 命中 1 次。
 
 - [x] 当前工作树（2026-11-05 第三轮改动，**已提交并推送**）：提交 `cdceae9`「feat: 翻页动画重做（8 种·绕中缝铰链）+ 沉浸式待机，鸿蒙工程入库」，`59 files changed, 2188 insertions(+), 275 deletions(-)`。
@@ -340,7 +341,7 @@ RunCommandUtil.run(r, undefined, true)   // spawnSync(cmd, ["/d","/c", r], {wind
 `A RenderFlex overflowed by 177 pixels on the bottom.`。
 `lib/flip_clock/clock_view.dart` 的 `_CustomCountdownDialogState.build` 三处一起改才留得住输入区：
 `scrollable: true` + `contentPadding: fromLTRB(24,8,24,8)` + `actionsPadding: fromLTRB(24,0,24,12)`，并把 `TextField.autofocus` 关掉
-（一抢焦点就弹键盘，弹窗立刻塌；15/30/45/60 快捷键本来不需要键盘）。只加 `scrollable` 在测试里能过、**真机没修好**，这是实测出来的差别。
+（一抢焦点就弹键盘，弹窗立刻塌；15/30/45/60 快捷键本来不需要键盘）。只加 `scrollable` 在测试里能过、**真机没修好**，这是实测出来的差别。（第十三轮起这段搬进 `lib/flip_clock/controls.dart`，`clock_view.dart` 已删；弹窗快捷键也换成与外面一致的 5/10/25/45 —— 现址与行号见 §6.8。）
 
 反向验证（确认新测试能钉住原 bug，不是恒真）：临时把三处改回原样 → 两条新测试分别红（`RenderFlex overflowed` / 输入框高度塌成 0），恢复修改 → 64 例全绿。新增测试在 `test/app_widget_test.dart`：
 - 「手机横屏 自定义弹窗完整可见，且不会一打开就弹键盘」—— 2400x1080@2.625，断言 `TextField`/`60`/`开始` 三块矩形不越屏 + `tester.testTextInput.isVisible` 为 false。
@@ -354,7 +355,7 @@ RunCommandUtil.run(r, undefined, true)   // spawnSync(cmd, ["/d","/c", r], {wind
 
 冒烟时从截图里看到的第二个真机问题：**状态栏一直在**（`i02_countdown_started.png` 左上角 `3:05`、右上角 `LTE` + 电量，底部还有手势条），而这是个 Fliqlo 式待机翻页时钟，状态栏直接破坏整屏观感。
 
-改法只有一行，当时写在 `lib/main.dart:15` 的锁横屏之后（第十二轮（R4）起这两句都搬进了 `lib/flip_clock/clock_view.dart` 的 `initState`：排向在 `:46`，沉浸是 `:50`）：
+改法只有一行，当时写在 `lib/main.dart:15` 的锁横屏之后（第十二轮（R4）起这两句都搬进了 `lib/flip_clock/clock_view.dart` 的 `initState`：排向在 `:46`，沉浸是 `:50`；**第十三轮起再搬进 `lib/core/system_ui.dart:14/:22`，沉浸那句只有待机屏调**，外壳三页走 `edgeToEdge` + 四向，见 §6.8）：
 
 ```dart
 await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
@@ -365,13 +366,35 @@ await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
 模拟器实测（`k01`–`k11` 一串截图）：
 - 状态栏与手势条消失，数字占满整屏（`k03_after_gotit.png`）。
 - Android 首次进入会弹系统提示「Viewing full screen / To exit, swipe down from the top of your screen」，点掉之后不再出现（`k01`/`k02` 抓到）。
-- 应用自己的 chrome（齿轮 + 菜单）仍按 6 s 自动隐藏，**点屏幕任意处重新唤出**（`Listener.onPointerDown → _pokeChrome`，`clock_view.dart:206`），唤出后齿轮位置随 `SafeArea` 上移到真正的顶边（`k04`）。
-- 设置页在沉浸式下正常打开、布局无异常（`k06`）；返回键仍能把路由弹回主屏（`k07`）。
+- 应用自己的 chrome（齿轮 + 菜单）仍按 6 s 自动隐藏，**点屏幕任意处重新唤出**（`Listener.onPointerDown → _pokeChrome`，`clock_view.dart:206`；现址 `standby_view.dart:148`/`:70`，见 §6.8），唤出后齿轮位置随 `SafeArea` 上移到真正的顶边（`k04`）。
+- 设置页在沉浸式下正常打开、布局无异常（`k06`）；返回键仍能把路由弹回主屏（`k07`）。（第十三轮起设置不再是路由而是外壳第三个标签，待机屏里也没有齿轮了 —— 退出待机才回得到设置，见 §6.8。）
 - 自定义倒计时弹窗端到端复测：打开时不弹键盘（`k09`）→ 点输入框弹键盘，弹窗滚动后输入框与「取消/开始」都可见（`k10`，`scrollable: true` 起作用，15/30/45/60 需要滚一下才看到）→ 输入 `25` 点「开始」真的起表（`k11`，`00:24:58`）。
 
 坐标标定补一条（修正坑 K 的用法）：`adb shell input tap` 的坐标空间**就是 `screencap` 出来的那张 2400x1080**，别拿预览图（约 2000x900）的读数直接填 —— 本轮按预览读数连点两次 `自定义` 都落在数字区（y=790 vs 实际 y=960）。用 PIL 按行扫亮像素定位控件比肉眼估可靠。
 
 未验证：鸿蒙真机的沉浸式（未签名装不上）；iOS 侧 `immersiveSticky` 的行为（本机无模拟器/真机跑过 iOS）。
+
+## 6.8 第十三轮之后的文件地图（上面那些 `clock_view.dart` 引用现在在哪）
+
+第十三轮（2026-11-06）之前的历史段落**保持原样**（带轮次标签的引用改了就是造假），但它们指向的 `lib/flip_clock/clock_view.dart`、`lib/start/start_view.dart`、`lib/todo/todo_drawer.dart`、`test/support/pass_start.dart` **四个文件已经删掉**。现址如下（行号 `grep -n` 实测）：
+
+| 上面提到的东西 | 现在在哪 |
+| --- | --- |
+| 锁排向 + 沉浸那两句（§5 待办 1、§6.7） | `lib/core/system_ui.dart:14` `AppSystemUi.enterApp()`（四向 + `edgeToEdge`）/ `:22` `enterStandby(orientation)`（两档 + `immersiveSticky`）。**都是 `static void`，故意不 await**（fake-async 里 await 单向通道会挂住）。调用点：外壳 `lib/app/app_shell.dart:32`、进待机 `lib/flip_clock/standby_view.dart:48`、退出待机还原 `:66` |
+| `_CustomCountdownDialogState.build` 那三处（§6.6） | `lib/flip_clock/controls.dart:53` 起；`scrollable: true` `:81`、`contentPadding` `:82`、`actionsPadding` `:83`、`autofocus: false` `:93`。⚠️ 弹窗里的快捷键**本轮换了来源**：原来是硬编码 `const [15, 30, 45, 60]`（旧 `clock_view.dart:539`，所以 §6.6 记的 15/30/45/60 当时是对的），现在读 `AppConstants.countdownPresets` = **5 / 10 / 25 / 45**（`controls.dart:109` → `constants.dart:26`，常量本身没动），与外面那排起表芯片对齐；测试断言相应从 `find.text('60')` 改成 `countdownPresets.last` |
+| `_pokeChrome` / `Listener.onPointerDown` / 6 秒淡出（§6.7） | `lib/flip_clock/standby_view.dart`：`_chromeHideDelay` `:19`、`_pokeChrome` `:70`、`_chrome`（`AnimatedOpacity` + `IgnorePointer`）`:90`、`Listener` `:147-148`、退出键 `Icons.fullscreen_exit` `:191` |
+| 待办抽屉（§6.6 冒烟项、REVIEW §19.5 的 85% 宽） | 抽屉整个没了，改成外壳第二个标签 `lib/todo/todo_page.dart`（170 行）。宽度那条随之作废 |
+| 主屏那排起表芯片 / 计时中控制（§6.6、§6.7） | 外壳第一个标签 `lib/flip_clock/clock_page.dart`（284 行）：读数卡 `:52`、起表卡 `:139`、计时中卡 `:189`、待机卡 `:108`。**页内顺序 = 读数 → 起表 →（计时中）→ 进入待机**；拆文件时曾把待机卡摆在第二位（模拟器截图才发现，三份文档都写它在最后），已挪回末尾并由 `app_widget_test.dart:429` 那条顺序用例钉住。进待机按钮在 push 前先 `ScaffoldMessenger.of(context).clearSnackBars()`（`:125`）：不清的话待办页的撤销条会铺进全屏待机那层（`app_widget_test.dart:448` 钉住）。全屏大数字那一层只剩 `standby_view.dart` |
+| 开始页（第十二轮 R4 新增） | 也整个没了（`lib/start/start_view.dart` 162 行删除）。排向挪进 设置 → 屏幕与声音 →「待机屏排向」（`lib/settings/settings_page.dart:165`），**只管待机屏**；外壳三页始终跟随系统旋转 |
+| `test/support/pass_start.dart` 的 `passStartScreen` / `wakeChrome` | `test/support/app_harness.dart`（75 行）：`tapTab` / `enterStandby` / `exitStandby` / `wakeChrome`。`pumpApp` 现在是「外壳 + 按『进入待机』」，不再是「过开始页」 |
+
+**三条门限别抄混**（都是 `LayoutBuilder` 的可用空间，不是设备/方向）：
+
+- 外壳底部条 vs 左侧栏：`app_shell.dart:66` `maxWidth >= 760 && maxHeight >= 600`。**高度门限本轮从 400 提到 600**：写 400 时横屏手机整屏 411 高刚好过线，被当平板拿到竖排 `NavigationRail`，键盘一弹页体只剩 130.3 而这三颗目的地实测要 180 高 → 溢出 50px。注意这个 `LayoutBuilder` 包在 `Scaffold` 外面（`:61`），量的是整屏高，不是被键盘压矮的页体高。
+- 设置页两栏 vs 上下叠：`settings_page.dart:46` `maxWidth >= 760 && maxHeight >= 260`（原 400）。外壳固定吃掉 **AppBar 56 + NavigationBar 80 = 136**（两个 `closeTo` 断言钉在测试里），411 高只剩 275，门限还写 400 就等于横屏手机永远上下叠。
+- 待办页收起进度行：`todo_page.dart:63` `maxHeight < 160`。键盘下实测页体只剩 138.3（914×411）/ 104（640×360）；空状态同时改成可滚（`:124`），否则那个死高度的 `Column` 溢出 50px / 4px。
+
+**跑测试时记住两条**（本轮现场踩）：`IndexedStack` 把没选中的页放在 Offstage，`find` 默认看不见 → 量页体要 `skipOffstage: false`；而 `RenderFlex` 的溢出在 **paint** 阶段才报，Offstage 的页不 paint，所以**溢出存在但 `takeException()` 是 null**，切过去才炸。详细取证与反向验证见 REVIEW.md §二十一。
 
 
 ## 7. 提交/推送约定（沿用既有授权语境）
@@ -394,5 +417,6 @@ ls -la build/app/outputs/flutter-apk/                    # arm64 18,376,683 / v7
 ```
 
 **别再用 `flutter build hap`（bash 启动器）验证递归** —— 那条路必然复现 `Recursion Count=234`，是 `OS` 污染，不是回归。
-Android 侧自检：`/d/dev/flutter/bin/flutter.bat analyze`（No issues found）+ `/d/dev/flutter/bin/flutter.bat test`（第十二轮起 **214 例**；64 例是 2026-11-05 上午那一版）。
+Android 侧自检：`/d/dev/flutter/bin/flutter.bat analyze`（No issues found）+ `/d/dev/flutter/bin/flutter.bat test`（第十三轮起 **224 例**，实测 `00:42 +224: All tests passed!`；第十二轮 214 例、64 例是 2026-11-05 上午那一版）。例数以 runner 报的为准：静态 `grep -c testWidgets` 只有 153，差额是 `ui_style_test` / `progress_decor_test` 里的矩阵循环。
+⚠️ 上面那串 `ls` 的 **release** 字节数全是 `5c2722c`（v1.2.0）的产物；第十三轮（`1.3.0+4`，外壳三标签）**release 两条链都没重跑**，要拿这一版的 release 包得重跑 `tool/build_hap.sh --release --no-codesign` 与 `flutter build apk --release --split-per-abi`（别把旧数字当新取证）。本轮为模拟器视验重出过两次 **x86_64 debug**（`flutter build apk --debug --split-per-abi --target-platform android-x64`，Gradle 23.7s / 24.3s，`app-x86_64-debug.apk` = 95,766,874 B，versionCode 4004，`install -r` 没丢数据），它只覆盖 `app-x86_64-debug.apk` 这一个落点，上面那行 fat debug 183,056,489 仍是 `52e4bf3` 的。
 

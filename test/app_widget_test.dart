@@ -5,36 +5,44 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:timenote/app/app_shell.dart';
+import 'package:timenote/core/constants.dart';
 import 'package:timenote/core/providers/app_providers.dart';
 import 'package:timenote/core/providers/clock_providers.dart';
 import 'package:timenote/core/storage_service.dart';
 import 'package:timenote/egg/egg_display.dart';
 import 'package:timenote/flip_clock/clock_controller.dart';
+import 'package:timenote/flip_clock/clock_page.dart';
 import 'package:timenote/flip_clock/flip_card_widget.dart';
+import 'package:timenote/flip_clock/standby_view.dart';
 import 'package:timenote/main.dart';
 import 'package:timenote/progress_decor/progress_decor.dart';
 import 'package:timenote/settings/enum_def.dart';
 import 'package:timenote/settings/settings_page.dart';
 import 'package:timenote/settings/style_picker.dart';
-import 'package:timenote/start/start_view.dart';
+import 'package:timenote/todo/todo_page.dart';
 
+import 'support/app_harness.dart';
 import 'support/fake_storage.dart';
 import 'support/fake_wakelock.dart';
-import 'support/pass_start.dart';
 
-/// 应用级回归测试：抽屉真的滑入、待办真的进列表并写进 box、常亮即时生效、
-/// 倒计时归零的彩蛋/停止/暂停行为正确。
+/// 应用级回归测试：三标签真的换页、待办真的进列表并写进 box、常亮即时生效、
+/// 待机屏的排向/沉浸/控件自动隐藏、倒计时归零的彩蛋/停止/暂停行为正确。
 ///
 /// 三条环境约束（都实测踩过）：
 /// 1. fake-async 区内不能 await 真实文件 IO，所以存储用 Hive 内存后端
 ///    （见 support/fake_storage.dart），落盘回归在 storage_service_test.dart；
-/// 2. 抽屉/路由动画按帧推进，单次 `pump(500ms)` 只会停在起始值，
+/// 2. 路由/标签动画按帧推进，单次 `pump(500ms)` 只会停在起始值，
 ///    所以要连续小步 pump（见 [pumpFrames]）；
 /// 3. audioplayers 需要真实资源落盘，测试环境把 soundEnable 关掉，
 ///    彩蛋与声音互不阻塞的顺序改由代码审查保证。
 ///
 /// 倒计时走时与实时时钟都通过 clockSourceProvider 注入假时间源，秒数只有在
 /// 测试主动 tick 时才会前进，所以翻页动画不会出现「新旧两份 HH:MM:SS 同时在场」。
+///
+/// 两种画面要分清：[pumpShell] 停在外壳三标签（时间页那张读数卡也在里面），
+/// [pumpApp] 再按「进入待机」进全屏大屏。归零彩蛋、进度层、控件自动隐藏都只
+/// 属于待机屏；起表预设与自定义弹窗只属于时间页。
 void main() {
   late ProviderContainer container;
   late DateTime fakeNow;
@@ -63,7 +71,8 @@ void main() {
     }
   }
 
-  Future<void> pumpApp(WidgetTester tester) async {
+  /// 外壳三标签（时间 / 待办 / 设置）。第一屏就是它，没有开始页了
+  Future<void> pumpShell(WidgetTester tester) async {
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
@@ -71,7 +80,12 @@ void main() {
       ),
     );
     await pumpFrames(tester, 3, const Duration(milliseconds: 50));
-    await passStartScreen(tester);
+  }
+
+  /// 外壳 + 待机屏：全屏大数字那一层，归零行为与进度层都在这里验
+  Future<void> pumpApp(WidgetTester tester) async {
+    await pumpShell(tester);
+    await enterStandby(tester);
   }
 
   /// 同时推进注入的时间源与测试帧，让倒计时按预期的秒数走
@@ -94,23 +108,41 @@ void main() {
     return clockText(tester);
   }
 
-  Future<void> openDrawer(WidgetTester tester) async {
-    await tester.tap(find.byIcon(Icons.checklist));
-    await pumpFrames(tester, 8, const Duration(milliseconds: 60));
+  /// 待办与设置各自是一个标签，不再是抽屉/子路由：先退回外壳再点标签
+  Future<void> openTodo(WidgetTester tester) async {
+    await exitStandby(tester);
+    await tapTab(tester, '待办');
   }
 
   Future<void> openSettings(WidgetTester tester) async {
-    await tester.tap(find.byIcon(Icons.settings));
-    await pumpFrames(tester, 10, const Duration(milliseconds: 60));
+    await exitStandby(tester);
+    await tapTab(tester, '设置');
   }
 
-  /// 点底部胶囊按钮：命中的是 ActionChip 整体，点文字中心会触发 hit-test 警告
+  /// 设置页的滚动区。外壳用 IndexedStack 把三页都建出来了，没选中的那两页
+  /// 在 Offstage 里（find 默认跳过），但按类型找 ListView 仍然容易撞到别页，
+  /// 所以凡是设置页里的滚动都限定在它自己的子树内
+  Finder settingsScrollable() => find.descendant(
+      of: find.byType(SettingsPage), matching: find.byType(Scrollable));
+
+  Finder settingsList() => find.descendant(
+      of: find.byType(SettingsPage), matching: find.byType(ListView));
+
+  /// 点胶囊按钮：命中的是 ActionChip 整体，点文字中心会触发 hit-test 警告。
+  /// 时间页的起表芯片在懒建列表里，横屏手机（尤其键盘还弹着时）首屏装不下，
+  /// 没建出来的要先滚到它，建出来但压在视口外的再 ensureVisible 拉进来
   Future<void> tapChip(WidgetTester tester, String label) async {
     await wakeChrome(tester);
-    await tester.tap(find.ancestor(
-      of: find.text(label),
-      matching: find.byType(ActionChip),
-    ));
+    final chip = find.ancestor(
+        of: find.text(label), matching: find.byType(ActionChip));
+    if (chip.evaluate().isEmpty) {
+      await tester.scrollUntilVisible(find.text(label), 120,
+          scrollable: find.descendant(
+              of: find.byType(ClockPage), matching: find.byType(Scrollable)));
+    }
+    await tester.ensureVisible(chip);
+    await pumpFrames(tester, 2, const Duration(milliseconds: 50));
+    await tester.tap(chip);
     await pumpFrames(tester, 3, const Duration(milliseconds: 50));
   }
 
@@ -150,143 +182,303 @@ void main() {
     });
   }
 
-  group('开始页与排向', () {
-    /// 第一屏不能直接进时钟，所以这一组自己 pump，不复用 [pumpApp]
-    Future<void> pumpStart(WidgetTester tester) async {
-      await tester.pumpWidget(
-        UncontrolledProviderScope(
-          container: container,
-          child: const TimeNoteApp(),
-        ),
-      );
-      await pumpFrames(tester, 3, const Duration(milliseconds: 50));
+  group('外壳与排向', () {
+    /// 外壳的门限是 760×600（宽高都要够）：手机横竖屏都走底部导航栏，
+    /// 只有平板那种又宽又高的画面才换左侧导航栏 —— 横屏手机高度不够，
+    /// 键盘一弹竖排三颗带文字的目的地就装不下（实测溢出 50px）。
+    /// 默认测试画面是 800×600（宽屏那一支），要验底部栏得先把画面改成手机尺寸。
+    Future<void> phoneSurface(WidgetTester tester) async {
+      await tester.binding.setSurfaceSize(const Size(390, 844));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
     }
 
-    testWidgets('第一屏是开始页：默认横屏，还没锁方向也没进沉浸', (tester) async {
-      recordSystemChrome();
-      await pumpStart(tester);
+    const allOrientations = [
+      'portraitUp',
+      'landscapeLeft',
+      'portraitDown',
+      'landscapeRight',
+    ];
 
-      expect(find.byType(StartView), findsOneWidget);
-      expect(find.text('开始'), findsOneWidget);
-      expect(find.byType(ClockTimeDisplay), findsNothing,
-          reason: '方向还没定就先画时钟，等于回到强制横屏');
+    testWidgets('第一屏是外壳的时间页：不锁排向也不进沉浸', (tester) async {
+      await phoneSurface(tester);
+      recordSystemChrome();
+      await pumpShell(tester);
+
+      expect(find.byType(AppShell), findsOneWidget);
+      expect(find.byType(ClockPage), findsOneWidget);
+      expect(find.byType(StandbyView), findsNothing,
+          reason: '进来就是全屏大数字，等于又回到强制横屏那一版');
       expect(settings().orientation, AppOrientation.landscape,
-          reason: 'R4 默认横屏：平板待机的原始观感不能被顺手改掉');
-      expect(orientationCalls, isEmpty, reason: '开始页就锁方向等于又强制了一次');
-      expect(uiModeCalls, isEmpty, reason: '沉浸是时钟页的事，开始页还得用系统栏');
+          reason: 'R4 默认横屏：待机屏的原始观感不能被顺手改掉');
+      expect(orientationCalls.last, allOrientations,
+          reason: '外壳三页跟随手机当前拿法，四向都要放开');
+      expect(uiModeCalls.last, 'edgeToEdge',
+          reason: '沉浸是待机屏的事，外壳还得留着系统栏');
     });
 
-    testWidgets('点「开始」才锁横屏两档，同时进沉浸', (tester) async {
+    testWidgets('窄屏给底部导航栏：时间 / 待办 / 设置三颗，贴在屏幕下沿', (tester) async {
+      await phoneSurface(tester);
+      await pumpShell(tester);
+
+      final bar = tester.widget<NavigationBar>(find.byType(NavigationBar));
+      expect(bar.destinations, hasLength(3), reason: '用户要的就是底下这三颗');
+      expect(bar.selectedIndex, 0, reason: '进来先停在时间页');
+      for (final label in ['时间', '待办', '设置']) {
+        expect(
+            find.descendant(
+                of: find.byType(NavigationBar), matching: find.text(label)),
+            findsOneWidget,
+            reason: '底部少了「$label」这一颗');
+      }
+      final rect = tester.getRect(find.byType(NavigationBar));
+      expect(rect.bottom, closeTo(844, 1), reason: '导航栏没贴在屏幕下沿');
+      expect(rect.width, closeTo(390, 1));
+      // 这条高度是外壳的「固定开销」：AppBar 56 + 导航条 80 = 136，
+      // 横屏手机 411 高只剩 275 给页体，设置页分栏门限 260 就是照它定的
+      expect(rect.height, closeTo(80, 1), reason: '导航条高度变了，页体预算要重算');
+      expect(tester.getRect(find.byType(AppBar)).height, closeTo(56, 1),
+          reason: '标题栏高度变了，页体预算要重算');
+      expect(find.byType(NavigationRail), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('宽屏（平板 1180×820）换成左侧导航栏，底部不再占一条', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1180, 820));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await pumpShell(tester);
+
+      expect(find.byType(NavigationRail), findsOneWidget);
+      expect(find.byType(NavigationBar), findsNothing,
+          reason: '平板上再压一条底部栏，白吃掉一截读数高度');
+      final rail = tester.getRect(find.byType(NavigationRail));
+      expect(rail.left, closeTo(0, 1));
+      expect(rail.height, greaterThan(400));
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('点标签真的换页：一次只有一页在可视树里，标题栏跟着换', (tester) async {
+      await pumpShell(tester);
+
+      await tapTab(tester, '待办');
+      expect(find.byType(TodoPage), findsOneWidget);
+      expect(find.byType(ClockPage), findsNothing,
+          reason: '没选中的页该退到 Offstage，不然两页的控件会一起被点到');
+      expect(
+          find.descendant(of: find.byType(AppBar), matching: find.text('待办')),
+          findsOneWidget);
+
+      await tapTab(tester, '设置');
+      expect(find.byType(SettingsPage), findsOneWidget);
+      expect(find.byType(TodoPage), findsNothing);
+
+      await tapTab(tester, '时间');
+      expect(find.byType(ClockPage), findsOneWidget);
+      expect(find.byType(SettingsPage), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('点「进入待机」才锁横屏两档并进沉浸', (tester) async {
       recordSystemChrome();
-      await pumpStart(tester);
+      await pumpApp(tester);
 
-      await tester.tap(find.text('开始'));
-      await pumpFrames(tester, 12, const Duration(milliseconds: 60));
-
-      expect(find.byType(StartView), findsNothing,
-          reason: '开始页该被替换掉：返回键要退出 App，不该退回这一页');
+      expect(find.byType(StandbyView), findsOneWidget);
+      expect(find.byType(ClockPage), findsNothing,
+          reason: '待机屏是全屏一层，底下那页要被摘掉，不然两套控件同时在场');
       expect(find.byType(ClockTimeDisplay), findsOneWidget);
       expect(orientationCalls.last, ['landscapeLeft', 'landscapeRight']);
       expect(uiModeCalls, contains('immersiveSticky'));
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('选竖屏：当场下发竖屏两档，并且落盘', (tester) async {
-      recordSystemChrome();
-      await pumpStart(tester);
-
-      await tester.tap(find.text('竖屏'));
-      await pumpFrames(tester, 3, const Duration(milliseconds: 50));
-
-      expect(orientationCalls.last, ['portraitUp', 'portraitDown'],
-          reason: '选了不反应会让人以为没按上');
-      expect(StorageService.getSetting('screenOrientation', 'landscape'),
-          'portrait',
-          reason: '只在当次会话生效等于没存，下次打开又回横屏');
-
-      container.dispose();
-      container = ProviderContainer(
-        overrides: [clockSourceProvider.overrideWithValue(() => fakeNow)],
-      );
+    testWidgets('退出待机：系统栏与四向旋转都交还给外壳', (tester) async {
       await pumpApp(tester);
-      expect(settings().orientation, AppOrientation.portrait);
-      expect(orientationCalls.last, ['portraitUp', 'portraitDown']);
+      recordSystemChrome();
+      await exitStandby(tester);
+
+      expect(find.byType(StandbyView), findsNothing);
+      expect(find.byType(ClockPage), findsOneWidget);
+      expect(orientationCalls.last, allOrientations,
+          reason: '退出去还锁着横屏，待办与设置两页就没法竖着用了');
+      expect(uiModeCalls.last, 'edgeToEdge');
     });
 
-    testWidgets('时钟页里改排向立刻生效，不必退回开始页', (tester) async {
+    testWidgets('设置里选「竖屏」：外壳不转、落盘，进待机才锁竖屏两档', (tester) async {
       recordSystemChrome();
-      await pumpApp(tester);
+      await pumpShell(tester);
       await openSettings(tester);
-      final options = find.descendant(
-          of: find.byType(SettingsPage), matching: find.byType(Scrollable));
-      await tester.scrollUntilVisible(find.textContaining('屏幕排向'), 160,
-          scrollable: options);
+      await tester.scrollUntilVisible(find.textContaining('待机屏排向'), 160,
+          scrollable: settingsScrollable());
       await tester.ensureVisible(find.text('竖屏'));
       await pumpFrames(tester, 2, const Duration(milliseconds: 50));
 
       await tester.tap(find.text('竖屏'));
       await pumpFrames(tester, 4, const Duration(milliseconds: 50));
 
-      expect(orientationCalls.last, ['portraitUp', 'portraitDown'],
-          reason: '设置页改了要等下次启动才转，等于骗人');
       expect(settings().orientation, AppOrientation.portrait);
+      expect(StorageService.getSetting('screenOrientation', 'landscape'),
+          'portrait',
+          reason: '只在当次会话生效等于没存，下次打开又回横屏');
+      expect(orientationCalls.last, allOrientations,
+          reason: '排向只管待机屏：在外壳里就把手机锁成竖屏是越权');
+
+      await tapTab(tester, '时间');
+      await enterStandby(tester);
+      expect(orientationCalls.last, ['portraitUp', 'portraitDown'],
+          reason: '进了待机屏就该按选的那一档锁住');
     });
 
-    testWidgets('竖屏 390×844：开始页、时钟、抽屉、设置页都不溢出', (tester) async {
-      await tester.binding.setSurfaceSize(const Size(390, 844));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
-
+    testWidgets('库里存着竖屏时，一进待机就是竖屏两档（重启路径）', (tester) async {
+      await StorageService.writeSettings({'screenOrientation': 'portrait'});
+      recordSystemChrome();
       await pumpApp(tester);
-      expect(find.byType(ClockTimeDisplay), findsOneWidget);
-      expect(tester.takeException(), isNull, reason: '竖屏是这一版新支持的，先钉住');
 
-      await openDrawer(tester);
-      final drawer = tester.getRect(find.byType(Drawer));
-      expect(drawer.width, lessThan(390), reason: '抽屉盖满整屏就没有「还能点回去」的缝了');
+      expect(settings().orientation, AppOrientation.portrait);
+      expect(orientationCalls.last, ['portraitUp', 'portraitDown']);
+    });
+
+    testWidgets('平板走左侧导航栏那一支：三页与待机屏都不溢出', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1180, 820));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await pumpShell(tester);
+      expect(find.byType(NavigationRail), findsOneWidget);
+
+      for (final tab in ['待办', '设置', '时间']) {
+        await tapTab(tester, tab);
+        expect(tester.takeException(), isNull, reason: '$tab 页在平板尺寸下溢出');
+      }
+      await enterStandby(tester);
+      expect(tester.takeException(), isNull);
+      await exitStandby(tester);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('键盘弹起来时导航栏不许溢出：平板与小平板两档都验', (tester) async {
+      // 待办页的输入框会唤起键盘，Scaffold 把页体压矮；左侧导航栏是竖排三颗
+      // 带文字的目的地，压到一定程度就装不下（横屏手机上实测溢出 50px）
+      for (final size in [const Size(1180, 820), const Size(960, 600)]) {
+        tester.view.physicalSize = size * 2;
+        tester.view.devicePixelRatio = 2;
+        tester.view.viewInsets = const FakeViewPadding(bottom: 600);
+        await pumpShell(tester);
+        await tapTab(tester, '待办');
+        await tester.enterText(find.byType(TextField), '键盘起来了');
+        await pumpFrames(tester, 4, const Duration(milliseconds: 60));
+        expect(tester.takeException(), isNull,
+            reason: '${size.width}×${size.height} 弹键盘时溢出');
+      }
+      // 横屏手机才是这条高度门限的理由：Pixel 7 AVD 2400×1080@2.625 → 914×411 逻辑，
+      // 键盘 570 物理像素 = 217 逻辑，页体只剩 138 高，竖排三颗带文字的目的地装不下
+      tester.view.physicalSize = const Size(2400, 1080);
+      tester.view.devicePixelRatio = 2.625;
+      tester.view.viewInsets = const FakeViewPadding(bottom: 570);
+      await pumpShell(tester);
+      await tapTab(tester, '待办');
+      await tester.enterText(find.byType(TextField), '键盘起来了');
+      await pumpFrames(tester, 4, const Duration(milliseconds: 60));
+      expect(tester.takeException(), isNull, reason: '横屏手机弹键盘时溢出');
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+      tester.view.resetViewInsets();
+    });
+
+    testWidgets('竖屏 390×844：外壳三页与待机屏都不溢出', (tester) async {
+      await phoneSurface(tester);
+      await pumpShell(tester);
+      expect(find.byType(ClockTimeDisplay), findsOneWidget);
+      expect(tester.takeException(), isNull, reason: '竖屏手机是这一版的主场景');
+
+      await tapTab(tester, '待办');
+      expect(find.byType(TodoPage), findsOneWidget);
       expect(tester.takeException(), isNull);
 
-      // 抽屉还开着时右上角那颗在抽屉底下，先按那条缝把它关掉再进设置
-      await tester.tapAt(const Offset(10, 400));
-      await pumpFrames(tester, 8, const Duration(milliseconds: 60));
-      expect(find.byType(Drawer), findsNothing);
-
-      await tester.tap(find.byIcon(Icons.settings));
-      await pumpFrames(tester, 10, const Duration(milliseconds: 60));
+      await tapTab(tester, '设置');
       expect(find.byType(SettingsPage), findsOneWidget);
+      expect(tester.takeException(), isNull);
+
+      await tapTab(tester, '时间');
+      await enterStandby(tester);
+      expect(tester.takeException(), isNull);
+      await exitStandby(tester);
       expect(tester.takeException(), isNull);
     });
   });
 
-  group('主屏', () {
-    testWidgets('展示 HH:MM:SS 翻页数字', (tester) async {
-      await pumpApp(tester);
+  group('时间页与待机屏', () {
+    testWidgets('两处都展示 HH:MM:SS 翻页数字', (tester) async {
+      await pumpShell(tester);
+      expect(find.byType(ClockTimeDisplay), findsOneWidget);
+      expect(await readClock(tester), '10:00:00');
+
+      await enterStandby(tester);
       expect(find.byType(ClockTimeDisplay), findsOneWidget);
       expect(await readClock(tester), '10:00:00');
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('右上角有设置与待办入口', (tester) async {
-      await pumpApp(tester);
-      expect(find.byIcon(Icons.settings), findsOneWidget);
-      expect(find.byIcon(Icons.checklist), findsOneWidget);
+    testWidgets('时间页给得出起表与待机两组入口', (tester) async {
+      await pumpShell(tester);
+      expect(find.text('开始一段计时'), findsOneWidget);
+      for (final min in AppConstants.countdownPresets) {
+        expect(find.text('$min 分'), findsOneWidget, reason: '少了 $min 分这一档');
+      }
+      expect(find.text('自定义'), findsOneWidget);
+      expect(find.text('回到时钟'), findsOneWidget);
+      expect(find.text('进入待机'), findsOneWidget);
     });
 
-    testWidgets('无操作 6 秒后控件不可点，点一下唤回后仍能进设置', (tester) async {
+    testWidgets('卡片顺序：读数 → 起表 →（计时中）→ 进入待机', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(390, 844));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await pumpShell(tester);
+
+      double top(String label) => tester.getTopLeft(find.text(label)).dy;
+      expect(tester.getTopLeft(find.byType(ClockTimeDisplay)).dy,
+          lessThan(top('开始一段计时')));
+      expect(top('开始一段计时'), lessThan(top('进入待机')),
+          reason: '待机是二级目的地，不能把起表挤出首屏');
+
+      await tester.tap(find.text('25 分'));
+      await pumpFrames(tester, 6, const Duration(milliseconds: 120));
+      expect(top('开始一段计时'), lessThan(top('进行中')));
+      expect(top('进行中'), lessThan(top('进入待机')));
+      expect(tester.takeException(), isNull);
+      await stopTicker(tester);
+    });
+
+    testWidgets('进待机清掉遗留的撤销条：全屏那层不压别的页的提示', (tester) async {
+      await pumpShell(tester);
+      await openTodo(tester);
+      await tester.enterText(find.byType(TextField), '删掉我');
+      await tester.tap(find.byIcon(Icons.add));
+      await pumpFrames(tester, 5, const Duration(milliseconds: 60));
+      await tester.tap(find.byIcon(Icons.delete_outline));
+      await pumpFrames(tester, 5, const Duration(milliseconds: 60));
+      expect(find.byType(SnackBar), findsOneWidget, reason: '删除后该有撤销条');
+
+      await tapTab(tester, '时间');
+      await enterStandby(tester);
+      expect(find.byType(SnackBar), findsNothing,
+          reason: '撤销条跟着铺进了全屏待机，压在大数字下面');
+      await exitStandby(tester);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('待机屏无操作 6 秒后退出键不可点，点一下唤回后仍能退出', (tester) async {
       await pumpApp(tester);
-      expect(find.byIcon(Icons.settings), findsOneWidget);
+      expect(find.byIcon(Icons.fullscreen_exit), findsOneWidget);
 
       await tester.pump(const Duration(seconds: 7));
       await pumpFrames(tester, 4, const Duration(milliseconds: 100));
 
       // 隐藏态下按钮被 IgnorePointer/Opacity 屏蔽：这次点击命不中按钮，
       // 只会经由最外层 Listener 把控件唤回（warnIfMissed 关掉，miss 是预期）
-      await tester.tap(find.byIcon(Icons.settings), warnIfMissed: false);
+      await tester.tap(find.byIcon(Icons.fullscreen_exit), warnIfMissed: false);
       await pumpFrames(tester, 4, const Duration(milliseconds: 100));
-      expect(find.byType(SettingsPage), findsNothing,
-          reason: '控件隐藏时不应响应设置按钮');
+      expect(find.byType(StandbyView), findsOneWidget,
+          reason: '控件隐藏时那一下不该把待机屏退掉');
 
-      await openSettings(tester);
-      expect(find.byType(SettingsPage), findsOneWidget);
+      await exitStandby(tester);
+      expect(find.byType(ClockPage), findsOneWidget);
     });
 
     testWidgets('关掉「控件自动隐藏」：已淡出的控件立刻叫回，且不再有 6 秒时间盒',
@@ -298,17 +490,28 @@ void main() {
       await appSettings()
           .update(settings().copyWith(autoHideChrome: false));
       await pumpFrames(tester, 4, const Duration(milliseconds: 100));
+      expect(
+          tester
+              .widgetList<AnimatedOpacity>(find.byType(AnimatedOpacity))
+              .every((a) => a.opacity == 1),
+          isTrue,
+          reason: '关掉这一档要把已经淡出的控件当场叫回来');
 
       // 再等一个 6 秒：这一档关掉后不该重新藏起来
       await tester.pump(const Duration(seconds: 7));
       await pumpFrames(tester, 4, const Duration(milliseconds: 100));
+      expect(
+          tester
+              .widgetList<AnimatedOpacity>(find.byType(AnimatedOpacity))
+              .every((a) => a.opacity == 1),
+          isTrue,
+          reason: '关掉自动隐藏后不许再次藏起');
 
       await openSettings(tester);
-      expect(find.byType(SettingsPage), findsOneWidget,
-          reason: '关掉自动隐藏要把淡出的控件叫回来，且不许再次藏起');
+      expect(find.byType(SettingsPage), findsOneWidget);
       expect(StorageService.getSetting('autoHideChrome', true), isFalse);
-
-      await tester.scrollUntilVisible(find.text('控件自动隐藏'), 120);
+      await tester.scrollUntilVisible(find.text('控件自动隐藏'), 120,
+          scrollable: settingsScrollable());
       expect(find.text('控件自动隐藏'), findsOneWidget,
           reason: '这一档必须在设置页里找得到');
     });
@@ -318,29 +521,40 @@ void main() {
       await pumpApp(tester);
       await tester.pump(const Duration(seconds: 7));
       await pumpFrames(tester, 4, const Duration(milliseconds: 100));
+      expect(
+          tester
+              .widgetList<AnimatedOpacity>(find.byType(AnimatedOpacity))
+              .every((a) => a.opacity == 1),
+          isTrue);
+
       await openSettings(tester);
       expect(find.byType(SettingsPage), findsOneWidget);
     });
   });
 
-  group('待办抽屉', () {
-    testWidgets('点击汉堡后抽屉真的滑入可视区域', (tester) async {
-      await pumpApp(tester);
-      expect(find.byType(Drawer), findsNothing, reason: '未打开时不该在树上');
+  group('待办页', () {
+    testWidgets('待办是一个标签页，不再是盖住半屏的抽屉', (tester) async {
+      await pumpShell(tester);
+      expect(find.byType(Drawer), findsNothing);
 
-      await openDrawer(tester);
-      final drawer = tester.getRect(find.byType(Drawer));
-      final screen = tester.getRect(find.byType(Scaffold));
-      expect(drawer.right, closeTo(screen.right, 1));
-      expect(drawer.left, greaterThanOrEqualTo(screen.left));
-      expect(drawer.top, greaterThanOrEqualTo(screen.top));
-      expect(drawer.bottom, lessThanOrEqualTo(screen.bottom));
-      expect(drawer.width, greaterThan(100));
+      await openTodo(tester);
+      expect(find.byType(Drawer), findsNothing, reason: '抽屉那一套该整个退场');
+      expect(find.byType(TodoPage), findsOneWidget);
+      final page = tester.getRect(find.byType(TodoPage));
+      final screen = tester.getRect(find.byType(AppShell));
+      expect(page.left, greaterThanOrEqualTo(screen.left));
+      expect(page.right, lessThanOrEqualTo(screen.right));
+      expect(page.top, greaterThanOrEqualTo(screen.top));
+      expect(page.bottom, lessThanOrEqualTo(screen.bottom));
+      expect(find.text('还没有待办'), findsOneWidget);
+      expect(find.text('暂无待办，添加一条吧'), findsOneWidget);
+      expect(find.text('添加待办'), findsOneWidget,
+          reason: '空状态要给得出下一步，不能只留一句话');
     });
 
     testWidgets('新增待办出现在列表里，输入框被清空', (tester) async {
-      await pumpApp(tester);
-      await openDrawer(tester);
+      await pumpShell(tester);
+      await openTodo(tester);
 
       await tester.enterText(find.byType(TextField), '写周报');
       await tester.tap(find.byIcon(Icons.add));
@@ -355,12 +569,12 @@ void main() {
         ),
         findsOneWidget,
       );
-      expect(find.text('1/1'), findsOneWidget);
+      expect(find.text('还剩 1 件 · 共 1 件'), findsOneWidget);
     });
 
     testWidgets('勾选完成后出现清除入口，清除后列表与存储都空', (tester) async {
-      await pumpApp(tester);
-      await openDrawer(tester);
+      await pumpShell(tester);
+      await openTodo(tester);
 
       await tester.enterText(find.byType(TextField), '背单词');
       await tester.tap(find.byIcon(Icons.add));
@@ -369,6 +583,8 @@ void main() {
       await tester.tap(find.byType(Checkbox));
       await pumpFrames(tester, 5, const Duration(milliseconds: 60));
       expect(find.byIcon(Icons.delete_sweep_outlined), findsOneWidget);
+      expect(find.text('清除已完成（1）'), findsOneWidget);
+      expect(find.text('还剩 0 件 · 共 1 件'), findsOneWidget);
 
       await tester.tap(find.byIcon(Icons.delete_sweep_outlined));
       await pumpFrames(tester, 5, const Duration(milliseconds: 60));
@@ -384,8 +600,8 @@ void main() {
     });
 
     testWidgets('删除单条待办', (tester) async {
-      await pumpApp(tester);
-      await openDrawer(tester);
+      await pumpShell(tester);
+      await openTodo(tester);
       await tester.enterText(find.byType(TextField), '删掉我');
       await tester.tap(find.byIcon(Icons.add));
       await pumpFrames(tester, 5, const Duration(milliseconds: 60));
@@ -394,6 +610,65 @@ void main() {
       await pumpFrames(tester, 5, const Duration(milliseconds: 60));
       expect(find.text('暂无待办，添加一条吧'), findsOneWidget);
       expect(StorageService.getTodoList(), isEmpty);
+    });
+
+    testWidgets('切到别的标签再回来，输入到一半的字还在', (tester) async {
+      await pumpShell(tester);
+      await openTodo(tester);
+      await tester.enterText(find.byType(TextField), '写一半');
+
+      await tapTab(tester, '时间');
+      await tapTab(tester, '待办');
+      expect(tester.widget<TextField>(find.byType(TextField)).controller!.text,
+          '写一半',
+          reason: 'IndexedStack 保状态，切个标签不该把人打的字吃掉');
+    });
+
+    testWidgets('横屏手机弹键盘：待办页不溢出，输入行在键盘上方，空状态滚得到',
+        (tester) async {
+      // 两档都是实测溢出过的几何：914×411（Pixel 7 AVD，键盘 217 逻辑）页体剩 138 高，
+      // 640×360（键盘 200 逻辑）只剩 104 高。原来进度标题那一行 + 空状态那一列都是
+      // 死高度，分别溢出 50px 与 4px；现在标题让位、空状态改成够高居中不够就滚。
+      for (final geo in [
+        (const Size(2400, 1080), 2.625, 570.0),
+        (const Size(1280, 720), 2.0, 400.0),
+      ]) {
+        final (physical, dpr, keyboardPx) = geo;
+        final logical = physical / dpr;
+        final keyboard = keyboardPx / dpr;
+        tester.view.physicalSize = physical;
+        tester.view.devicePixelRatio = dpr;
+        tester.view.viewInsets = FakeViewPadding(bottom: keyboardPx);
+        await pumpShell(tester);
+        await tapTab(tester, '待办');
+        await tester.enterText(find.byType(TextField), '键盘起来了');
+        await pumpFrames(tester, 4, const Duration(milliseconds: 60));
+        expect(tester.takeException(), isNull,
+            reason: '${logical.width}×${logical.height} 弹键盘时溢出');
+
+        final field = tester.getRect(find.byType(TextField));
+        expect(field.height, greaterThan(0), reason: '输入框塌成 0 高就没法打字了');
+        expect(field.bottom, lessThanOrEqualTo(logical.height - keyboard),
+            reason: '输入框被键盘盖住了');
+        expect(find.text('还没有待办'), findsNothing,
+            reason: '高度不够时进度标题要让位，标题栏已经写着「待办」');
+
+        final emptyScroll = find.descendant(
+            of: find.byType(TodoPage),
+            matching: find.byType(SingleChildScrollView));
+        expect(emptyScroll, findsOneWidget, reason: '空状态要能滚，不能靠缩字');
+        await tester.drag(emptyScroll, const Offset(0, -120));
+        await pumpFrames(tester, 4, const Duration(milliseconds: 60));
+        expect(tester.takeException(), isNull, reason: '滚空状态时溢出');
+
+        tester.view.resetViewInsets();
+        await pumpFrames(tester, 4, const Duration(milliseconds: 60));
+        expect(find.text('还没有待办'), findsOneWidget,
+            reason: '键盘收起来后进度标题要回来');
+        expect(tester.takeException(), isNull);
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      }
     });
   });
 
@@ -641,7 +916,8 @@ void main() {
     });
 
     testWidgets('自定义弹窗校验非法输入，合法值真的启动倒计时', (tester) async {
-      await pumpApp(tester);
+      // 起表入口在时间页，不在待机屏：待机屏只留「正在跑的这一段」的出口
+      await pumpShell(tester);
       await tapChip(tester, '自定义');
       await pumpFrames(tester, 8, const Duration(milliseconds: 60));
       expect(find.text('自定义倒计时'), findsOneWidget);
@@ -669,7 +945,7 @@ void main() {
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
 
-      await pumpApp(tester);
+      await pumpShell(tester);
       await tapChip(tester, '自定义');
       await pumpFrames(tester, 8, const Duration(milliseconds: 60));
       expect(find.text('自定义倒计时'), findsOneWidget);
@@ -678,7 +954,7 @@ void main() {
       // 输入框 + 4 个快捷键 + 开始按钮都得完整落在屏内
       for (final target in [
         find.byType(TextField),
-        find.text('60'),
+        find.text('${AppConstants.countdownPresets.last}'),
         find.text('开始'),
       ]) {
         final rect = tester.getRect(target);
@@ -700,7 +976,7 @@ void main() {
       addTearDown(tester.view.resetDevicePixelRatio);
       addTearDown(tester.view.resetViewInsets);
 
-      await pumpApp(tester);
+      await pumpShell(tester);
       await tapChip(tester, '自定义');
       await pumpFrames(tester, 8, const Duration(milliseconds: 60));
       expect(find.text('自定义倒计时'), findsOneWidget);
@@ -797,14 +1073,14 @@ void main() {
   });
 
   group('设置', () {
-    testWidgets('切换数字样式后主屏字重变化并落盘', (tester) async {
-      await pumpApp(tester);
+    testWidgets('切换数字样式后时间页字重变化并落盘', (tester) async {
+      await pumpShell(tester);
       await openSettings(tester);
       expect(find.byType(SettingsPage), findsOneWidget);
 
       await tester.dragUntilVisible(
         find.text('粗黑力量体'),
-        find.byType(ListView),
+        settingsScrollable(),
         const Offset(0, -120),
       );
       await tester.ensureVisible(find.text('粗黑力量体'));
@@ -813,11 +1089,14 @@ void main() {
       await pumpFrames(tester, 6, const Duration(milliseconds: 50));
       expect(StorageService.getSetting('clockVisualStyle', ''), 'boldPower');
 
-      await tester.pageBack();
-      await pumpFrames(tester, 10, const Duration(milliseconds: 60));
+      // 设置不再是一层子路由，退回时间页就是点回那颗标签
+      await tapTab(tester, '时间');
+      expect(find.byType(ClockPage), findsOneWidget);
 
       final digits = tester.widgetList<Text>(find.descendant(
-          of: find.byType(FlipCardWidget), matching: find.byType(Text)));
+          of: find.descendant(
+              of: find.byType(ClockPage), matching: find.byType(FlipCardWidget)),
+          matching: find.byType(Text)));
       expect(digits, isNotEmpty);
       for (final d in digits) {
         expect(d.style?.fontWeight, FontWeight.w900,
@@ -828,29 +1107,33 @@ void main() {
     testWidgets('横屏手机（914×411 逻辑）设置页不溢出，预览与选项都留得住高度',
         (tester) async {
       // Pixel7 横屏：2400×1080 物理 / density 2.625 → 逻辑 914×411。
-      // 这里原先只按宽度分栏，结果 411 高的屏幕被横切成两栏，
-      // 预览吃掉固定 210 高，选项区只剩 145，一整屏都滚不出几行。
+      // 外壳的标题栏 + 底部导航条先吃掉 136，这一页只剩 275 高：宽度还够就分栏，
+      // 选项能拿到整段 275；上下叠会被预览切掉一半，只剩 135 滚不出几行。
       tester.view.physicalSize = const Size(2400, 1080);
       tester.view.devicePixelRatio = 2.625;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
       const screenSize = Size(2400 / 2.625, 1080 / 2.625);
 
-      await pumpApp(tester);
+      await pumpShell(tester);
       await openSettings(tester);
       expect(find.byType(SettingsPage), findsOneWidget);
+      // 411 高的屏幕不给左侧导航栏：竖排三颗带文字的目的地装不下，
+      // 键盘再咬掉一半时实测溢出 50px
+      expect(find.byType(NavigationBar), findsOneWidget);
+      expect(find.byType(NavigationRail), findsNothing);
 
       final previewHeight = tester.getSize(find.byType(StylePreview)).height;
-      final optionsHeight = tester.getSize(find.byType(ListView)).height;
+      final optionsHeight = tester.getSize(settingsList()).height;
       expect(previewHeight, greaterThanOrEqualTo(100),
           reason: '预览矮于此就看不清翻页了');
       expect(optionsHeight, greaterThan(previewHeight),
           reason: '选项区是主操作区，不该比预览还矮');
       expect(optionsHeight, lessThanOrEqualTo(screenSize.height),
-          reason: '两栏加起来不能超出屏幕');
+          reason: '选项区不能比屏幕还高');
 
       // 滚到底逐屏确认：任何一张选项卡片都不许横向越界
-      final options = find.byType(ListView);
+      final options = settingsList();
       final listRect = tester.getRect(options);
       expect(listRect.top, greaterThanOrEqualTo(0), reason: '选项区顶部被顶出屏幕');
       expect(listRect.bottom, lessThanOrEqualTo(screenSize.height),
@@ -871,7 +1154,7 @@ void main() {
     });
 
     testWidgets('设置页预览用当前风格实时渲染', (tester) async {
-      await pumpApp(tester);
+      await pumpShell(tester);
       await openSettings(tester);
       expect(find.byType(StylePreview), findsOneWidget);
       expect(
@@ -885,9 +1168,9 @@ void main() {
 
     testWidgets('分区重排后两块都滚得到：外框在「外观」卡里靠前，结束行为在后面',
         (tester) async {
-      await pumpApp(tester);
+      await pumpShell(tester);
       await openSettings(tester);
-      final options = find.byType(ListView);
+      final options = settingsList();
 
       await tester.dragUntilVisible(
           find.text('粗外框'), options, const Offset(0, -120));
@@ -916,7 +1199,7 @@ void main() {
 
     testWidgets('七张分区卡从上到下都在：外观→数字样式→翻页动画→进度→结束→屏幕与声音→关于',
         (tester) async {
-      await pumpApp(tester);
+      await pumpShell(tester);
       await openSettings(tester);
       final options = find.descendant(
           of: find.byType(SettingsPage), matching: find.byType(Scrollable));
@@ -939,7 +1222,7 @@ void main() {
     });
 
     testWidgets('翻页动画按分组族铺开，一族一个小标题', (tester) async {
-      await pumpApp(tester);
+      await pumpShell(tester);
       await openSettings(tester);
       final options = find.descendant(
           of: find.byType(SettingsPage), matching: find.byType(Scrollable));
@@ -954,7 +1237,7 @@ void main() {
     });
 
     testWidgets('设置页点「底部细进度条」开关：状态翻转并落盘', (tester) async {
-      await pumpApp(tester);
+      await pumpShell(tester);
       await openSettings(tester);
       final options = find.descendant(
           of: find.byType(SettingsPage), matching: find.byType(Scrollable));

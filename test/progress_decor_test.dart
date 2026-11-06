@@ -10,11 +10,12 @@ import 'package:timenote/core/storage_service.dart';
 import 'package:timenote/main.dart';
 import 'package:timenote/progress_decor/progress_decor.dart';
 import 'package:timenote/settings/enum_def.dart';
+import 'package:timenote/settings/settings_page.dart';
 import 'package:timenote/settings/style_picker.dart';
 
+import 'support/app_harness.dart';
 import 'support/fake_storage.dart';
 import 'support/fake_wakelock.dart';
-import 'support/pass_start.dart';
 
 const Color _accent = Color(0xFF00FF00);
 const Color _fg = Color(0xFFFFFFFF);
@@ -248,7 +249,7 @@ void main() {
       await releaseMemoryStorage();
     });
 
-    Future<void> pumpApp(WidgetTester tester) async {
+    Future<void> pumpShell(WidgetTester tester) async {
       await tester.pumpWidget(
         UncontrolledProviderScope(
           container: container,
@@ -258,7 +259,12 @@ void main() {
       for (var i = 0; i < 3; i++) {
         await tester.pump(const Duration(milliseconds: 50));
       }
-      await passStartScreen(tester);
+    }
+
+    Future<void> pumpApp(WidgetTester tester) async {
+      await pumpShell(tester);
+      // 进度层属于待机屏：那一屏才有「数字下方/背景」这块画布
+      await enterStandby(tester);
     }
 
     Future<void> setDecor(WidgetTester tester, ProgressDecor d) async {
@@ -399,13 +405,13 @@ void main() {
     });
 
     testWidgets('设置页可选：翻到进度组件区点「沙漏」', (tester) async {
-      await pumpApp(tester);
-      await tester.tap(find.byIcon(Icons.settings));
-      for (var i = 0; i < 10; i++) {
-        await tester.pump(const Duration(milliseconds: 60));
-      }
+      // 这条要的是外壳里的设置标签页，不进待机屏（进了就把三标签盖住了）
+      await pumpShell(tester);
+      await tapTab(tester, '设置');
+      final options = find.descendant(
+          of: find.byType(SettingsPage), matching: find.byType(Scrollable));
       // 选项在列表末尾，直接 find 还没被 ListView 建出来，要边滚边找
-      await tester.scrollUntilVisible(find.text('沙漏'), 120);
+      await tester.scrollUntilVisible(find.text('沙漏'), 120, scrollable: options);
       expect(find.textContaining('底层进度组件'), findsOneWidget);
       // 分区卡改了行高，边滚边找只会保证「建出来」，芯片可能还压在视口外，
       // 不拉进可视区就是 tap 落空 + 设置没变

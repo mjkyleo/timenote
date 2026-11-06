@@ -1,370 +1,75 @@
 # 时笺 TimeNote
 
-> 平板离线翻页时钟 · 专注计时 + 待办 + 倒计时彩蛋
+> 离线翻页时钟 · 专注倒计时 · 待办清单
 
-**下载**：最新正式版 [v1.2.0](https://github.com/mjkyleo/timenote/releases/tag/v1.2.0)（Android 平板直接装 `app-arm64-v8a-release.apk`）；跟 main 走的自测版是常驻的 [dev-build](https://github.com/mjkyleo/timenote/releases/tag/dev-build)（每次推 main 自动覆盖）。两个入口都是公开直链，免登录、不过期。
+一款纯离线的 Android 平板 / 手机时钟 App。不登录、不广告、不上传任何数据。
+平时用它看时间、起一段专注计时、记几条待办；把它立在桌上时，按一下「进入待机」就是一块 Fliqlo 式的翻页大屏。
 
-一款面向 **Android 平板 / 华为鸿蒙平板 / iPad** 的纯离线时间管理 App。灵感来自 Fliqlo 式待机翻页时钟，保持极简：**翻页时钟 + 待办抽屉**，倒计时结束会随机给出一句文案陪你继续。
+**下载**：[最新正式版](https://github.com/mjkyleo/timenote/releases/latest)（Android 直接装 `app-arm64-v8a-release.apk`）；跟 main 走的自测版是常驻的 [dev-build](https://github.com/mjkyleo/timenote/releases/tag/dev-build)。两个入口都是公开直链，免登录、不过期。
 
-## ✨ 功能
+> 装正式版前先卸载已装的开发版：两者签名不一致，直接覆盖会被系统拒绝。计时与待办存在本机，卸载会一起清掉。
 
-- 🚪 **开始页（不强制横屏）**：第一屏问一次「屏幕排向」，横屏 / 竖屏两颗芯片（**默认横屏**，平板待机的原样），下面一颗「开始」。选完当场转过去，按下开始才锁方向、才进沉浸；换的是 `pushReplacement`，时钟页就是新的根，返回键退出 App 而不是退回开始页。之后想改就在设置 → 屏幕与声音 → 「屏幕排向」，改完立刻生效
-- ⏱️ 实时翻页时钟（每秒翻页）
-- ⏳ 倒计时：快捷预设 5 / 10 / 25 / 45 分钟 + 自定义 1–600 分钟（弹窗校验非法输入），暂停 / 继续 / 停止
-  - 自定义弹窗在横屏手机上不会软键盘一弹就塌掉：不自动抢焦点，且 `scrollable` + 收紧内边距，输入框和「开始」始终够得着（Pixel 7 横屏实测）
-  - 走时锚定墙钟：息屏、切后台、系统挂起都不会漏时
-  - 底部细进度条显示已消耗比例，**可在设置里关掉**（关掉后倒计时画面只剩数字本身）
-  - ⏳ **可选底层进度组件（8 种）**：沙漏 / 水位填充 / 环形 / 螺旋 / 灯带 / 年轮圆盘 / 蜡烛燃烧 / 日出日落，挂在数字下方那条进度带里（日出日落是唯一的环境层，垫在整屏背后、细进度条留着当读数）；默认「不使用」，一个像素都不多画。选其中一种会顶掉那根细条，同一份信息不画两遍
-  - 🏁 **归零后的行为三档可选**（默认弹彩蛋）：① 停留显示 `00:00:00`，屏幕不动等人来点，底部那颗芯片这时从「继续」换成**「重来」**，点它用上一轮的时长原地再起（归零态点「继续」是死的，等于摆一个按了没反应的按钮）② 自动重新开始，**时长就用上一次选的那个**，一轮接一轮不用再伸手 ③ 弹彩蛋，展示完自动回到实时时钟
-- 🎞️ **24 种翻页动画 + 混合轮换**（默认滚筒走字），按动效实验室的六类分工（设置页那张「翻页动画」卡就是照这几类铺成小标题，一类一屏好扫，外加「基础」「混合」两组）：
-  - **翻折 fold**：经典机场翻牌 / 书页卷曲翻页 / 对角斜折 / 弹跳翻牌 / 整卡翻面
-  - **位移 roll**：滚筒走字（里程表直线下滑 + 运动模糊 + 暗角）/ 横向滑移 / 级联错位
-  - **遮罩 mask**：百叶窗擦除 / 径向光圈 / 多边形遮罩
-  - **形变 morph**：交叉淡入 / 模糊对焦 / 果冻挤压
-  - **碎片 grain**：像素洗牌 / 粒子聚散 / 三角碎片（后两件标「仅收尾」，见下）
-  - **光学 light**：流体溶解 / 液态玻璃折射 / CRT 扫描线（前两件高频慎用）
-  - 另有下方推入 / 分段碎裂 / 渐变溶解 / 落体回弹四种早期样式；**混合轮换**每次翻页换一种，池子里排掉粒子聚散、三角碎片（只适合收尾）、流体溶解、液态玻璃（高频慎用）与像素洗牌（每字 12 块切片，一秒一次太贵）这五种，它们留作用户主动选的主题档
-  - **逐格翻**：时钟串拆成一格一格，只有数值真的变了的那一格才动，`:` 和未变的数字位保持静止；一格一个动画控制器，相邻两位同时变化时各翻各的
-  - **绕中缝铰链**：翻牌的上半片绕数字底板的中缝转（不是整块绕画面中心转），翻到 42% 换下半片承接；上半用 `easeInCubic` 加速下落、下半用 `easeOutBack` 回弹收尾，随翻起的角度按 `|sin θ|` 加深那面的阴影
-- 🔢 **10 种计时画面风格**：苹果极简 / 复古机械 / 软圆角 / 高对比窄版 / 手写文艺 / 粗黑力量 / 纤细思源 / 得意黑潮流 / 点阵 / 镂空描边
-  - 风格差异由字重、字距、字号倍率、描边、底板、圆角、中缝、等宽数字等 10 个维度实现，**没打包字体也两两可辨**
-- 🖼 **11 套整屏界面风格**：无装饰（原样）/ 编辑部 / 软胶拟物 / 便当格 / 自然有机 / 复古印刷 / 暗色分层 / 系统毛玻璃 / 超现实 / 哥特洛丽塔 / 视觉小说
-  - 分工：**界面风格管「环境」**（背景、数字底板的填充/描边/光影/圆角、标签字体与字距），**数字风格管「字形」**，两层正交、互不覆盖
-  - 每套自带亮/暗两版，由下面的底色档位选哪一版（默认档交给系统亮度决定）；取色逐条标注是参考页原值（`page:`）还是同族推导（`derived:`）
-- 🔲 **数字外框四档**：跟随界面风格 / 去掉外框 / 细外框（1.5px）/ 粗外框（3px）
-  - 这一档**只覆盖描边**：底板的填充、圆角、光影仍归界面风格令牌管，所以「去掉外框」不会顺手把软胶拟物的双影也去掉；风格没自带描边色时取前景的淡版，避免在黑底上画出一条生硬的原色线
-- ⚫⚪ 底色三档：**跟随系统（默认）** / 亮色（白）/ 暗色（黑），选中当前界面风格的亮版或暗版；手动两档压过系统，沉浸屏允许这样留一个覆盖口（暗环境里被系统切亮很刺眼），但默认不再替用户决定
-- 👁 **文字用色守住 WCAG 4.5:1**：卡片小标题、分组标签、文字按钮这些「文字层」不直接用皮肤给的 `muted` / `accent`，而是走派生的 `labelInk` / `accentInk`：先按真实透明度合成到底色与面板上，不够 4.5:1 再朝「亮底压黑、暗底提白」调明度，色相尽量留住。实测过底线在哪：亮色版 11 套里有 **7 套**的 `muted` 不达标（复古印刷 2.63、视觉小说 3.20、自然有机 3.43…），`accent` 当文字用有 **8 套**不达标、而且**把 alpha 拉满也救不回来**（自然有机 2.24、超现实 2.36），哥特洛丽塔暗版只有 2.07:1。现在 22 套令牌 × {底色, 面板} 的全矩阵由测试钉在 ≥4.5:1
-- 📳 **触感反馈**：勾选 / 删除待办 `lightImpact`，点芯片与换界面风格 `selectionClick`，倒计时归零 `heavyImpact`——归零这一发不看提示音开关，静音的人也得知道表走完了
-- 🎭 **响应系统「减弱动态效果」**：这一档开着时，翻页整体降到 150ms 淡入（crossfade），不再做位移与翻转。翻页是本 App 唯一自动、反复的动画（每分钟自己走一次），关掉它得真的关掉
-- 🚀 翻页速度三档：慢（900ms）/ 标准（450ms）/ 快（220ms）
-- ✅ **待办抽屉**：右上角清单图标（`Icons.checklist`，不再是一根没有语义的汉堡）唤起右侧抽屉，新增 / 勾选 / 删除 / 一键清除已完成，显示「未完成/总数」，Hive 本地持久化（乐观更新，落盘不阻塞 UI）
-  - **删除可撤销**：删掉单条后底部给一条「已删除「xxx」+ 撤销」，撤销按原位置插回（Apple 的规矩是不可逆动作要么有确认，要么有 undo，这里选后者，不弹窗）
-  - **空状态给得出下一步**：一句「暂无待办，添加一条吧」+ 一颗「添加待办」，按下是把焦点交给输入框（键盘跟着起来），不再只留一句话让人自己找框
-  - 完成态文字与删除图标不再写死 `Colors.grey` / `Colors.red`，改走当前风格的令牌（纯黑纯白底上一条生硬原色线本来就不属于这套皮肤）
-- 💌 **倒计时彩蛋**（结束三档里的第三档）：归零后时钟区域整体替换为随机文案（无弹窗），5 秒自动切回，点任意处立即返回；与提示音互不影响。文案会**按可用高宽自动缩字号**，长段落、整段英文、中英混排夹 URL 都能整块看完不用滑；系统字体调到最大（2x）也算进测量里。设置里**不给文案留任何开关**，出现哪条完全随机
-- 🔆 屏幕常亮默认开启，设置里关掉**立即生效**（不需要重启）
-- 🔇 提示音开关（本地 `assets/audio/alert.wav`，缺失或解码失败时静默降级）
-- 🖥 **整屏沉浸式**：状态栏与导航条默认隐藏（`SystemUiMode.immersiveSticky`），数字占满屏幕；从边缘滑动可临时唤回系统栏，Android 与鸿蒙都走同一条通道（鸿蒙侧 `flutter_ohos` 的 `PlatformPlugin` 显式实现了这个模式）
-- 🫥 **沉浸式待机**：无操作 6 秒后，底部倒计时按钮和右上角入口一起淡出，`IgnorePointer` 同步挡住误触；点屏幕任意处立刻唤回。待机画面回到纯数字，倒计时中唯一保留的是底部的进度读数——默认那根细进度条，选了进度组件就是它（同一份信息不画两遍）；它是「还在计时」的凭据，按钮才是噪声。真想要一块纯数字，把设置里那根细进度条关掉就行
-  - **这一档能整体关掉**：设置 → 屏幕与声音 → 「控件自动隐藏」（默认开着）。关掉后控件常驻，已经淡出的那一屏**当场叫回来**，不用重启也不用等下一次点击——藏控件是本 App 的签名，但「暂停 / 停止」是倒计时唯一的出口，给它套时间盒对需要更多时间的人不友好
-- 🎯 **点得着的尺寸**：主屏那 6 颗芯片实测 48pt 高（800×600 逻辑像素下量的矩形，Apple 一档是 44×44pt），设置页的风格芯片 46–48pt；纯图标按钮走 SDK 的 `kMinInteractiveDimension = 48`，并且 `tooltip` 会翻成屏幕阅读器念得出的标签
-- ⚙️ 设置页左侧实时预览：用真的翻页组件每 2 秒轮换样张，改一项马上看到效果（外框四档就在预览里当场见效，不必退回主屏验证）
-  - **七张分区卡从上到下**：外观（底色 / 界面风格 / 数字外框）→ 数字样式（计时画面 / 动画速度）→ 翻页动画（按分组族铺小标题）→ 进度显示（细进度条开关 + 底层进度组件）→ 倒计时结束 → 屏幕与声音（排向 / 常亮 / 提示音 / 控件自动隐藏）→ 关于；每张卡一个强调色竖条当锚点，卡内一组一个小标签，不再是一整面芯片墙
-  - 分栏按「宽 + 高」双条件判定：横屏手机（Pixel 7 逻辑 914×411）高度不足时改成上下叠放，预览按 42% 收放（下限 140、上限 240），选项区拿剩下的空间；窄屏那一版预览矮于一整屏时会挤掉半列表，已修
-  - 选项卡片之间有间距、长标签省略号截断，11 套界面风格的选择项带迷你底板色块
-- 📴 **纯离线**：无登录、无广告、不上传任何数据。唯一会出网的一次，是你在设置页主动按下「检查更新」那个按钮（详见下一条），平时零请求
-- 🔄 **手动检查更新**（设置 → 关于）：点了才问一次「云端最新构建是哪次提交」，比对的是 CI 每次发布都覆盖的 `dev-build-sha.txt` 纯文本附件，不带设备标识、不传任何个人信息；有更新就给一条可复制的发布页地址，自己下 APK 装上。本地 `flutter run` 出来的包没注构建号，会老实显示「比不了」而不是「已是最新」
+## 界面：底部三个标签
 
-## 🛠 技术栈
+| 标签 | 这一页放什么 |
+| --- | --- |
+| **时间** | 实时时钟读数与日期，往下是「开始一段计时」（5 / 10 / 25 / 45 分钟预设、自定义、回到时钟）、计时中的进度与暂停 / 继续 / 重来 / 停止，以及「进入待机」 |
+| **待办** | 新增、勾选、删除（可撤销）、一键清除已完成，顶部显示「还剩 N 件 · 共 M 件」，关掉再开都还在 |
+| **设置** | 实时预览 + 七张分区卡：外观 / 数字样式 / 翻页动画 / 进度显示 / 倒计时结束 / 屏幕与声音 / 关于（宽屏左右分栏，手机上下叠） |
 
-- Flutter 3.47.8 / Dart
-- flutter_riverpod（状态管理，时间源与插件都留了可注入的测试缝）
-- hive + hive_flutter（本地存储）
-- wakelock_plus（屏幕常亮）
-- audioplayers（提示音）
+平板这类宽屏上导航自动换成左侧竖排，手机上始终在底部。三个标签页跟随手机自己的旋转。
 
-## 📁 目录结构
+### 待机屏
 
-```
-lib/
-├── core/                  # 常量、存储封装、彩蛋文案服务、手动检查更新、Provider（clock/app/todo）
-├── flip_clock/            # 翻页时钟：动画渲染 + 外观表 + 主屏
-├── progress_decor/        # 底层进度组件（CustomPainter 8 件 + 连续相位只在需要时挂）
-├── theme/                 # 界面风格令牌（11 套 × 亮/暗）+ UiScope/UiLayer 注入
-├── todo/                  # 待办抽屉与单项
-├── settings/              # 设置页、风格选择器
-├── egg/                   # 倒计时彩蛋展示
-├── start/                 # 开始页：第一屏问一次横/竖，按下「开始」把根换成时钟页
-└── main.dart
-assets/
-├── data/quotes.json       # 彩蛋文案库（520 条，已入库）
-├── audio/alert.wav        # 提示音（已入库）
-├── icon/                  # 启动图标源图（1024×1024，不打进包）
-└── fonts/                 # 免费商用字体（按需放入）
-ohos/                      # 鸿蒙工程（Flutter-OH 模板，33 个文件入库）
-tool/
-├── ohos_env.sh            # 鸿蒙构建的本机环境变量正本
-├── build_hap.sh           # 一键出 HAP（绕开 bin/flutter 的 OS 污染）
-├── pubspec_overrides.ohos.yaml  # 只在鸿蒙构建期注入的依赖覆盖
-└── make_icons.py          # 源图 → 各 dpi 启动图标
-test/
-├── app_widget_test.dart   # 主屏 / 抽屉 / 常亮 / 倒计时结束三档+归零「重来」 / 沉浸式隐藏 / 细进度条开关 / 设置七卡（34 例）
-├── ui_style_test.dart     # 令牌完整性 + 风格真生效 + 11×2 全矩阵冒烟 + 外框四档（16 例）
-├── flip_rendering_test.dart # 24 种动画静止/半途/入场 + 混合轮换池 + 批次与分组登记 + 级联错开 + 10 种数字样式 + 自适应缩放（87 例）
-├── progress_decor_test.dart # 进度组件：像素级光栅核对 + 主屏挂载规则 + 设置持久化（18 例）
-├── clock_notifier_test.dart # 走时/暂停/继续/停止/生命周期（12 例，假时钟）
-├── storage_service_test.dart # 真实磁盘落盘 + 脏数据容忍（3 例）
-├── todo_model_test.dart   # 模型与非法数据（5 例）
-├── egg_service_test.dart  # 文案库与随机不重复（3 例）
-├── egg_display_test.dart  # 彩蛋文案排版压测：长短/中英文/系统字号/极端组合（13 例）
-├── update_check_test.dart  # 手动检查更新：SHA 比对 + loopback 真实抓取 + 设置页接线（11 例）
-└── support/               # fake_storage（Hive 内存后端）/ fake_wakelock
-```
+「进入待机」把整屏交给大数字：隐掉状态栏与导航条、屏幕常亮，无操作 6 秒后按钮自动淡出，点一下屏幕又叫回来，左上角的退出键回到三个标签。
 
-## 🚀 运行
+待机屏用横屏还是竖屏，在 设置 → 屏幕与声音 → 「待机屏排向」里选（默认横屏）。这一档只管待机屏。
+
+## 功能
+
+**时钟与倒计时**
+
+- 实时翻页时钟，每秒走字，只有真的变了的那一位才翻
+- 倒计时：5 / 10 / 25 / 45 分钟快捷预设，或自定义 1–600 分钟，可暂停 / 继续 / 停止
+- 息屏、切后台、系统挂起都不漏时，回来接着算
+- 归零后三档可选：停在 `00:00:00` 等人来点（这时那颗按钮是「重来」）／用上一轮的时长自动再来一轮／弹一句彩蛋文案
+- 彩蛋：520 条文案随机出一条，5 秒后自动回到时钟，点任意处立即返回；不给开关，出现哪条完全随机
+
+**外观**
+
+- 24 种翻页动画 + 混合轮换（每次翻页换一种），默认「滚筒走字」
+- 10 种数字风格：苹果极简 / 复古机械 / 软圆角 / 高对比窄版 / 手写文艺 / 粗黑力量 / 纤细思源 / 得意黑潮流 / 点阵 / 镂空描边
+- 11 套整屏界面风格：无装饰 / 编辑部 / 软胶拟物 / 便当格 / 自然有机 / 复古印刷 / 暗色分层 / 系统毛玻璃 / 超现实 / 哥特洛丽塔 / 视觉小说，每套自带亮暗两版
+- 底色三档：跟随系统（默认）／亮色／暗色；数字外框四档：跟随风格／无／细／粗
+- 翻页速度三档：慢 / 标准 / 快
+- 8 种倒计时进度组件：沙漏 / 水位 / 环形 / 螺旋 / 灯带 / 年轮 / 蜡烛 / 日出日落。默认不用；也可以只留一根细进度条，或干脆什么都不显示
+
+**用起来舒服**
+
+- 屏幕常亮默认开着，设置里关掉立刻生效
+- 提示音可关；倒计时归零那一下的震动不看静音开关
+- 跟随系统「减弱动态效果」：开着时翻页换成轻微淡入，不再反复翻转
+- 「控件自动隐藏」可整体关掉，让暂停 / 停止一直摆在手边
+- 文字对比度守住 4.5:1，浅色系皮肤也不发灰
+- 设置里「检查更新」：按下才问一次云端有没有新版本，平时零网络请求
+
+## 开发
 
 ```bash
 flutter pub get
 flutter run
+flutter analyze
+flutter test
 ```
 
-## 🧪 测试
+包体、发布链路与逐项验证取证见 [REVIEW.md](./REVIEW.md)；华为鸿蒙出包与本机工具链见 [HANDOFF-OHOS.md](./HANDOFF-OHOS.md)。
 
-```bash
-flutter analyze   # No issues found!
-flutter test      # 第十一轮 209 tests passed（本轮：214）
-```
+## 还没做
 
-209 例只管「形态对不对」；这一轮新钉住的七条是：22 套令牌 × {底色, 面板} 的文字对比度全矩阵 ≥4.5:1、系统「减弱动态效果」下翻页降到 150ms 收干净（对照组证明默认档真的还在翻）、「控件自动隐藏」关掉后淡出的控件当场叫回且不再有 6 秒时间盒、这一档关着落盘后重启仍然常驻、底色「跟随系统」按平台亮度落到黑或白、出厂默认底色就是跟随系统、首次翻页真的拿旧数字当旧牌（`late` 字段的初始化表达式在第一次读时才执行，原来第一次翻是「新数字自己翻自己」）。翻页铰链、倒计时中按钮隐去、横屏手机设置分栏这三件事另外在模拟器上逐条截图看过（AVD `trace_pixel7`，1080×2400@420dpi → 横屏逻辑 914×411，装本轮 x86_64 release 包）。图证、启动参数与「软渲染帧率不代表真机」这条限制见 [REVIEW.md](./REVIEW.md) §9.8。**动画观感与进度组件好不好看要人眼判**，24 种动画 + 8 种进度组件的实机效果由用户在 dev-build 直链上自测。
+- 待办增强（分类 / 到期 / 优先级）、纪念日倒计时与到点提醒
+- 打包免费商用中文字体，让 10 种数字风格的差异更明显
+- 鸿蒙版签名与真机验证；iPad 版需要 Apple 签名凭据
 
-【2026-11-06 第十二轮（R4 排向）追加】套件 209 → **214 例**，新增的 5 条都在 `test/app_widget_test.dart` 的「开始页与排向」那一组，全部靠 mock `SystemChannels.platform` 看到真实下发参数：① 第一屏是开始页，且一个方向/沉浸调用都没发 ② 点「开始」才锁 `['landscapeLeft','landscapeRight']` 并 `immersiveSticky`，开始页从树里消失 ③ 选竖屏当场下发 `['portraitUp','portraitDown']`、落盘，容器重启后读回 ④ 时钟页里进设置改排向立刻生效，不必退回开始页 ⑤ 竖屏 390×844 下开始页 / 时钟 / 抽屉 / 设置四屏不报错，抽屉宽度小于屏宽（留一条能点回去的缝）。所有走 `pumpApp` 的老用例现在先过开始页（`test/support/pass_start.dart`）。**方向切换与竖屏观感在真机（含鸿蒙）上没验过**，得人眼判。
-
-四个可注入的测试缝让「测过」这件事真的成立：
-
-| 依赖 | 生产 | 测试 |
-| --- | --- | --- |
-| 时间 | `DateTime.now` | `clockSourceProvider` 覆盖 + `fakeAsync`；实时时钟与倒计时共用这一个缝 |
-| 屏幕常亮 | wakelock_plus 平台通道 | `wakelockPlusPlatformInstance` 换 fake |
-| 存储 | Hive 磁盘后端 | widget 测试用 Hive 内存后端；真实落盘由普通 `test()` 覆盖 |
-| 网络（检查更新） | `HttpClient` 取 `dev-build-sha.txt` | `latestShaFetcherProvider` 覆盖 + `checkForUpdate(..., localSha:)`（`buildSha` 是编译期常量，测试进程里恒为空）；真实抓取那两例对 `127.0.0.1` 现起的 `HttpServer` 发请求，并在 `setUp` 里临时 `HttpOverrides.global = null` —— 不这么做的话 `flutter_test` 的假 `HttpClient` 一律回 400 |
-
-> 剪贴板那条不算「缝」但同样要处理：这个 SDK 的 `flutter_test` **不 mock** `Clipboard.setData`，`await` 下去永不完成，按钮会卡在「检查中…」且用例只表现为超时。做法是 `setMockMethodCallHandler(SystemChannels.platform, …)`，顺便把 `MethodCall` 捕获下来断言复制的到底是发布页而不是那条 `.txt`。
-
-> 提示音在 widget 测试里固定关闭：audioplayers 6 需要「资源 → 临时文件」的真实 IO，在 fake-async 区无法等待。因此「彩蛋先于提示音上屏」目前只有源码结构保证，未自动化覆盖（详见 [REVIEW.md](./REVIEW.md) 第五节）。
-
-## 🖥 本机出包（鸿蒙）
-
-鸿蒙要用 Flutter-OH 的 SDK（标准 Flutter 没有 `ohos` 目标），命令收在 `tool/build_hap.sh`：
-
-```bash
-tool/build_hap.sh                          # 默认 --debug --no-codesign；`52e4bf3` 复测：71.9 s → 125,984,972 字节
-tool/build_hap.sh --release --no-codesign  # AOT；`5c2722c` 复测：240.1 s → 23,191,729 字节（libapp.so 5,768,112 B，无 kernel_blob）
-```
-
-⚠️ `--release` 后面那半句 `--no-codesign` 别省：脚本的默认值 `--debug --no-codesign` 只在**不传任何参数**时生效，一旦传了 `--release` 就只剩 `--release`，工具会走去签名、拿不到证书 → 打印「请通过 DevEco Studio…配置调试签名」后 **退出码 1**，而且**不复制到 `build/ohos/hap/`**。实测两种跑法：`--release` → `EXIT=1`（`assembleHap` 16.2 s，产物仍生成在 `outputs/default/`，只是没复制）；`--release --no-codesign` → `EXIT=0` + `√ Built build\ohos\hap\entry-default-unsigned.hap (22.1MB)`，两处落点是同一份（md5 `7ee78c2a…` 相同）。以前文档写的「release 分支工具不复制」是这个非零退出的副作用，不是 release 的固有行为。
-
-两条命令都会自动把当前 commit 用 `--dart-define=BUILD_SHA=$(git rev-parse HEAD)` 注进包，和 CI 出 APK 同一口径 —— 解包 `grep` 那个 40 位 SHA，release 的 `libapp.so`、debug 的 `kernel_blob.bin` 里各出现 1 次，所以鸿蒙包里「检查更新」也有得比。
-
-脚本里三件事是有原因的，别手工替换成 `flutter build hap`：
-
-1. 走 `flutter.bat` 而不是 bash 启动器 `bin/flutter` —— 后者第 54 行 `OS="$(uname -s)"` 会把 `OS` 污染成 `MINGW64_NT-...` 并一路传给华为 `ohpm.bat`，而 `ohpm.bat` 用 `%OS%` 决定要不要开延迟展开，关掉之后它自己无限递归爆栈（`BATCH RECURSION ... Recursion Count=234`）。
-2. 构建期把 `tool/pubspec_overrides.ohos.yaml` 复制成 `pubspec_overrides.yaml`（已 gitignore），结束后删掉 —— audioplayers 的鸿蒙适配版用了 `TargetPlatform.ohos`，标准 SDK（含 CI）编译不过，所以覆盖只能在鸿蒙链路上注入。
-3. `tool/ohos_env.sh` 负责 `DEVECO_SDK_HOME` / `PUB_CACHE` 同盘 / `.exe` shim 那套本机环境。
-
-产物是**未签名**的 `entry-default-unsigned.hap`，装不上真机；签名要在 DevEco Studio 里用华为账号生成调试证书。⚠️ 两个落点**文件名相同**（`build/ohos/hap/` 与 `ohos/entry/build/default/outputs/default/`），后跑的覆盖前跑的：`5c2722c` 这轮 release（带 `--no-codesign`）跑完，两处都是那一份 23,191,729 B 的 release，上一轮 debug 的 125,984,972 B 已被就地覆盖 —— 要同时留两份，得在跑另一条之前先把这份改名收走。完整进度与坑见 [HANDOFF-OHOS.md](./HANDOFF-OHOS.md)。
-
-## 📱 本机出包（Android）
-
-```bash
-# 想让本机的包也能用「检查更新」，就要把构建号注进去（不注会显示「本地构建，比不了」）
-D:\dev\flutter\bin\flutter.bat build apk --release --split-per-abi \
-  --dart-define=BUILD_SHA=$(git rev-parse HEAD)   # → build/app/outputs/flutter-apk/
-```
-
-实测大小（2026-11-06 14:13–14:20 在本机 `5c2722c` 重新出包；`build apk --release --split-per-abi` 三个 + `build apk --release` 一个，都没带 `--dart-define=BUILD_SHA`，所以这四个包的「检查更新」会显示「比不了」）：`app-arm64-v8a-release.apk` 18,376,683 / `app-armeabi-v7a-release.apk` 15,763,273 / `app-x86_64-release.apk` 19,802,610 / `app-release.apk`（fat，三个 ABI 全带，日志 `√ Built … (50.4MB)`）52,849,574 字节。上一轮 `52e4bf3` 的四个数字（18,245,379 / 15,648,349 / 19,736,842 / 52,538,042）加 `app-debug.apk` 183,056,489 见 REVIEW §十六；debug 包这轮没重跑，那个数字仍是 `52e4bf3` 的。
-
-**为什么「功能这么简单」也要 18MB？** 把 arm64 那个包拆开看（`unzip -l build/app/outputs/flutter-apk/app-arm64-v8a-release.apk`，`5c2722c` 这轮：未压缩字节合计 18,727,546 / 66 个文件）：
-
-| 条目 | 字节 | 是什么 |
-| --- | --- | --- |
-| `lib/arm64-v8a/libflutter.so` | 11,763,360 | Flutter 引擎本体。任何 Flutter App 都带这一份，跟你写了几个功能无关 |
-| `lib/arm64-v8a/libapp.so` | 5,899,144 | AOT 编译出来的 Dart 机器码：自己的代码 + riverpod / hive / wakelock_plus / audioplayers 的 Dart 侧 |
-| `classes.dex` | 573,424 | 插件的 Android 侧 Java/Kotlin 胶水 |
-| `lib/arm64-v8a/libdartjni.so` | 131,400 | Dart ↔ Java 桥 |
-| `assets/flutter_assets/NOTICES.Z` | 111,200 | 开源许可清单，Flutter 强制打包 |
-| `assets/flutter_assets/assets/data/quotes.json` + `assets/audio/alert.wav` | 27,867 + 30,912 | **这款 App 自己塞进去的全部内容**（520 条文案 + 一段提示音） |
-
-引擎 + Dart 机器码 = 17,662,504 字节，占未压缩总量（18,727,546）的 94%；自己的素材 58,779 字节，占 0.3%。
-
-拿一个同版本 SDK 出的**空壳 Flutter Demo**（`flutter create` 后原样 `build apk --release --split-per-abi`）对照，同样的 arm64 release（下表「时笺」列是 `52e4bf3` 那一轮的；`5c2722c` 这轮 arm64 已是 18,376,683、`libapp.so` 5,899,144，Demo 没重跑，所以「引擎逐字节相同」这条只到那一轮为止）：
-
-| | 空壳 Demo | 时笺 | 差值 |
-| --- | --- | --- | --- |
-| APK | 15,503,242 | 18,245,379 | +2,742,137 |
-| `libflutter.so`（引擎） | 11,763,360 | 11,763,360 | **0**（逐字节相同） |
-| `libapp.so`（Dart AOT） | 3,212,168 | 5,768,072 | +2,555,904 |
-| `classes.dex` | 520,160 | 573,424 | +53,264 |
-| `NOTICES.Z` | 98,182 | 111,200 | +13,018 |
-| 图标字体合计 | 258,996（含 Demo 自带的 `CupertinoIcons.ttf` 257,628） | 2,440（tree-shake 后的 `MaterialIcons`，从 1,645,184 压到 99.9%↓） | −256,556 |
-
-结论：18MB 里 11.8MB 是 Flutter 引擎的固定成本（空壳也要），2.5MB 是 4 个插件 + 自己全部 Dart 代码的 AOT 产物，素材 5.9 万字节 —— 体积不是「功能做大了」，是框架底价。
-
-真正能省的是**装对包**：平板装 `app-arm64-v8a-release.apk`（`5c2722c` 这轮 17.5 MB），别装 50.4 MB 的 fat 包，`app-debug.apk`（174.6 MB，`52e4bf3` 那轮的数字，带 JIT 与全部 ABI）只用于开发。要走 Google Play 就得改发 AAB，由商店按设备下发单 ABI + 资源压缩，用户侧还能再小一截。换掉 `audioplayers` 之类的减重没做：插件的原生胶水在 dex 里，实测拆不出单独归属，收益是几十 KB 量级，不值得为它牺牲提示音。依赖清单本身也没有赘肉 —— `pubspec.yaml` 的 6 个非鸿蒙依赖逐个用 `grep -rl "package:<依赖>/"` 查过 `lib/`，全部真被 import（riverpod 9 个文件、hive/hive_flutter 与 wakelock_plus/audioplayers 各 1 个），没有可以「删了就直接小一点」的死依赖。
-
-这两条是**本机 `~/.gradle` 的前置，不在仓库里**，换机器要照做（否则分别卡在依赖下载和 Kotlin 增量缓存，见 HANDOFF 坑 I / 坑 J）：
-
-| 文件 | 内容 | 为什么 |
-| --- | --- | --- |
-| `~/.gradle/init.d/cn-mirror.gradle` | 把 `repo.maven.apache.org` / `plugins.gradle.org` 两个 URL **原地**换成 `maven.aliyun.com/repository/{public,gradle-plugin}` | 这两个源在 Cloudflare 上，本机会被静默挂住十几分钟。注意只能改 URL，新增仓库会撞 `settings.gradle.kts` 的 `repositoriesMode` 校验 |
-| `~/.gradle/gradle.properties` | `kotlin.incremental=false` | 中途 kill 掉的构建会留下损坏的 Kotlin 增量缓存，`flutter clean` / 停 daemon / 腾内存 / 单 worker 四种办法实测都救不回来 |
-
-## 🤖 云端构建可安装包（GitHub Actions）
-
-推送 main、推送 `v*` 标签或手动触发都会跑 `pub get` → `analyze` → `test` → `build apk`，产物有两个去处：
-
-| 平台 | 能不能装 | 在哪拿 |
-| --- | --- | --- |
-| **Android 平板（正式版）** | ✅ 可直接安装 | <https://github.com/mjkyleo/timenote/releases> 里标 **Latest** 的那一条（现在是 `v1.2.0`）：4 个 APK + `apk-sha256.txt`，说明文字来自仓库里的 `RELEASE-NOTES.md`。推 `v*` 标签即由 CI 自动发布 |
-| **Android 平板（开发版）** | ✅ 可直接安装 | Release 页的 `dev-build` 预发布（公开直链，免登录、不过期）：`app-arm64-v8a-release.apk`（平板优先）、`app-armeabi-v7a-release.apk`、`app-x86_64-release.apk`（模拟器/Chromebook）、`app-release.apk`（通用包）；另附 `apk-sha256.txt` 校验和（4 行，run #10 起含通用包）与 `dev-build-sha.txt`（本次构建的完整 commit SHA，设置页「检查更新」就是比这个） |
-| Android（同批产物） | ✅ | 每次 run 的 Artifacts `timenote-release-apk`（要登录 GitHub，默认保留 90 天） |
-| **iPad** | ❌ 装不上真机 | 只在手动触发勾选 `ios` 时构建（`flutter build ios --no-codesign`），产物是未签名 `Runner.app.zip`。要能装必须在仓库 secrets 里放 Apple 签名凭据，走 Xcode 签好再上 TestFlight/Ad Hoc |
-| **华为鸿蒙平板** | ⚠️ 本机能出包，云端出不了 | 本机 `tool/build_hap.sh --release --no-codesign` → `build/ohos/hap/entry-default-unsigned.hap`（`5c2722c` 这轮 23,191,729 B；**未签名，装不上真机**；调试证书要华为账号在 DevEco 里申请，`--no-codesign` 省了会退出码 1 且不复制，见上面「本机出包（鸿蒙）」）。GitHub Runner 拿不到 Flutter-OH SDK + 华为 Command Line Tools（在华为账号墙后），所以 CI 不构建鸿蒙 |
-
-```bash
-git push                                   # 推 main：云端构建完自动覆盖 dev-build 预发布的附件
-git tag -a v1.2.0 -m "..."                 # 注解标签（本机要落 noreply 邮箱，见 HANDOFF-OHOS.md §6）
-git push <remote> v1.2.0                    # 单推这一个标签 → 另发一条正式版 Release（Latest）
-```
-
-后两条是 `v1.2.0` 这轮实际跑的形态（`<remote>` 本机填 `ssh://git@ssh.github.com:443/mjkyleo/timenote.git`）；不是 `git push --follow-tags`，那个会把无关标签一起带上。
-
-- APK 用 **debug keystore 签名**（`android/app/build.gradle.kts` 的 release 构建沿用 debug 签名配置）：允许「未知来源应用」后点开即装，可自用与分发测试，但**不能上传 Google Play**。因为每轮的 keystore 是现生成的，**装正式版之前要先卸载已装的开发版**，否则系统按签名不一致拒绝（`INSTALL_FAILED_UPDATE_INCOMPATIBLE`）。
-- 应用图标 PNG 已经在仓库里（`android/app/src/main/res/mipmap-*/ic_launcher.png`，5 个 dpi），提示音 `alert.wav` 也在。`gradle-wrapper.jar` / `gradlew` **故意不入库**：Flutter 把 wrapper 归在 `DevelopmentArtifact.universal` 缓存产物里，每次构建 Android 前都会注入且**不覆盖已存在的文件**（`gradle_utils.dart:261-264`），所以 CI 原来那段 `curl` 下载步骤已删。本机验证方式：把 `gradlew`/`gradlew.bat`/jar/`local.properties` 四个移走模拟干净检出，`flutter build apk --release --split-per-abi` 仍然 23.9 s 出包并把四个文件补回来。
-- `dev-build` 这个 tag 由 CI 自己创建并复用，每次推 main 覆盖同名附件，所以永远只有一个「最新开发版」，不会攒一堆 release。正式版走另一条路：`v*` 标签一个版本一条 Release（`gh release create --latest`），互不覆盖；发版说明的正文放在仓库里的 `RELEASE-NOTES.md`，只有首行「对应提交 `xxxxxxx`」是 CI 现填的。
-
-**首轮真实验证（run #9，`cdceae9`）**：构建链全绿，`dev-build` 预发布被创建并发布出来，但 run 结论是 `failure` —— 挂的是最后一步里那句纯打印的自检（步骤只跑了 6 秒，附件那时已经传完），所以是「红叉但包已经发出去了」。要区分「没发出去」和「发出去后自检语句挂了」，看 run 的 steps 表而不是看红叉。
-
-**第二轮真实验证（run #10，`e628133`，2026-11-05）**：android job **13 步全 `success`**（446 秒，其中构建 APK 306 秒），ios 按设计 skipped。那一轮 `dev-build` 是 5 个附件（run #14 起变 6 个，见下面第三轮），免登录就能拿（本机直链会被截，稳妥走法见下面「字节级核过一遍」那条）：
-
-| 附件 | 字节 |
-| --- | --- |
-| `app-arm64-v8a-release.apk`（平板优先） | 17,909,554 |
-| `app-armeabi-v7a-release.apk`（很老的 32 位机） | 15,263,372 |
-| `app-x86_64-release.apk`（模拟器 / Chromebook） | 19,335,481 |
-| `app-release.apk`（通用包） | 51,432,169 |
-| `apk-sha256.txt` | 357（4 行，通用包也在内） |
-
-- ✅ run #9 那句拖红的打印**已修且已生效**：现在包在 `if summary=$(… 2>&1)` 里，失败时发一行 `::warning::` annotation（值先 `tr '\r\n' '  '` 压单行、再 `sed 's/%/%25/g'`），第 10 步 5 秒 `success`。选 annotation 而不是丢日志，是因为日志下载接口要 admin 权限（实测 403），`/check-runs/{id}/annotations` 免登录就能读。
-- ✅ **顺带把 run #9 的根因挖了出来**：那条 annotation 把 gh 的原文带出来了 —— `Unknown JSON field: "prerelease" … Available fields: … isPrerelease …`。所以不是打印玄学失败，是 `--json` 字段名写错，gh 的字段叫 `isPrerelease`。改对之后 **run #11（head `94ddb91`）android 13 步全 `success`**（构建 APK 289 秒、发布步 6 秒），annotations 只剩 GitHub 自己的 2 条 boilerplate，dev-build 那条 warning 不再出现 —— 两个分支必走其一，没 warning 就等于摘要日志打出来了。日志正文要 admin 才能下载（实测 403），所以「摘要长什么样」属于推断，没亲眼看过。
-- ✅ `apk-sha256.txt` 从 275 字节 3 行变成 357 字节 4 行。根因不是笔误而是 glob：`app-*-release.apk` 匹配不到 `app-release.apk`（`app-` 之后还要一个字面的 `-release.apk`，`*` 匹配空也只凑得出 `app--release.apk`）—— 本机 `touch` 出 5 个 apk 跑 `ls` 实测过，现在改成逐个点名。Artifacts 也同步确认：`timenote-release-apk` 从 24,897,396 涨到 48,773,766 字节（接近翻倍，与 3 包→4 包的比例一致）。
-- ⚠️ **同一个包每轮构建的 sha256 都不同**：run #10 的 arm64 是 `9e03d469cb66…`，run #11 是 `357d9e82c16b…`，而字节数完全一样（17,909,554）。原因是 debug keystore 在 Runner 上每轮现生成，签名块变长不变 —— 所以 sha256 只能用来核对「**同一次 run** 的附件 == 同一次 run 的清单」，不能当版本标识、也不能跨轮比较。要确认装上去的是哪次提交，看 `dev-build` 正文首行的「最新提交：`xxxxxxx`」（实测 run #10=`e628133`、run #11=`94ddb91`）。同理别拿本机的 arm64（`5c2722c` 实测 18,376,683，比 CI 同 commit 的 18,368,630 多 8,053）去核对云端附件。
-- ✅ **字节级核过一遍**：run #11 的 `app-arm64-v8a-release.apk` 整份下回来 `sha256sum` = `357d9e82c16b…`，与**同一轮** `apk-sha256.txt` 第一行逐字相同，`wc -c` = 17,909,554，文件头尾也是合法 ZIP（`504b0304` + `504b0506`）。下载只能走 `api.github.com/.../releases/assets/{id}` + `Accept: application/octet-stream` + `curl -sL -C -` 断点续传（实测 8 轮才凑满，单轮增量 0.34 MB～5.9 MB 都不等）；`releases/download/...` 直链在本机停在 3,134,272 字节而 `-w` 仍报 HTTP=200，所以**别信状态码，要比字节数**。
-- ⚠️ `gh release upload --clobber` 是删了重建附件，asset id 每轮换（arm64 `712511360`→`712600392`）。旧 id 并不会下载失败，坏在**错配**：拿上一轮的字节核这一轮的清单，会得到「哈希被改」的假信号 —— 下之前重新取一次 `releases/tags/dev-build`。
-
-**第三轮真实验证（run #14 推 main + run #15 推标签，都是 `947ecaf`，2026-11-05）**：两个 run 各自 10 步 / 9 步**全 `success`**，`annotations` 只剩 GitHub 自己的 2 条 boilerplate（Node 20 弃用 + ubuntu-latest 迁移预告）。
-
-| 事件 | 跑了哪个作业 | skipped | 发布结果 |
-| --- | --- | --- | --- |
-| 推 main（run #14） | `android` | `release`、`ios` | `dev-build` 预发布变 6 个附件（新增 `dev-build-sha.txt`，41 字节） |
-| 推 `v1.0.0` 标签（run #15） | `release` | `android`、`ios` | 新建 `v1.0.0`，`prerelease=false`、`draft=false`，5 个附件 |
-
-- ✅ **「检查更新」这条链路第一次真的有东西可读**：`releases/download/dev-build/dev-build-sha.txt` 取回来是 `947ecaf6649bc224b522d46414bc6f8d5e8fe5e2`，和本地 HEAD 逐字相同（这条路径在改动之前实测是 **404**，App 侧那种情形归「检查失败」）。走的是免登录直链，不是有 IP 限流的 `api.github.com/repos/.../commits/main`。
-- ✅ **`--latest` 生效**：`/releases/latest` 现在返回 `v1.0.0`（标题「时笺 TimeNote v1.0.0（Android 可安装包）」，正文首行是「对应提交 `947ecaf`」+ `RELEASE-NOTES.md` 全文，中文没乱码）。（这条是当时那一轮的取证；Latest 现在已经是 `v1.2.0`，见下面「第五轮真实验证」。）
-- ⚠️ **同一次提交、两轮构建 = 字节数全同、sha256 全不同**：`v1.0.0` 与 `dev-build` 这两轮的 arm64 都是 18,237,326 字节，而 digest 是 `855a0688…` 对 `69145927…`。这是上面那条「debug keystore 每轮现生成」的对照实验，也是为什么正式版说明里写「先卸载再装」。
-- ✅ **同轮互证不用下载 100MB**：`v1.0.0/apk-sha256.txt` 的四行与 GitHub API 自己在 asset 上给的 `digest` 字段逐字相同（4 个包全对得上），比整份下回来 `sha256sum` 便宜得多；真要字节级复现仍按上面那条走 assets API + 断点续传。
-
-| `v1.0.0` 附件 | 字节 |
-| --- | --- |
-| `app-arm64-v8a-release.apk`（平板优先） | 18,237,326 |
-| `app-armeabi-v7a-release.apk` | 15,656,684 |
-| `app-x86_64-release.apk` | 19,728,789 |
-| `app-release.apk`（通用包） | 52,546,377 |
-| `apk-sha256.txt` | 357 |
-
-**推文档提交也会跑（run #16，`d4c8d66`）**：`android` 作业每一步 `success`，`dev-build-sha.txt` 跟着搬到这一轮的 commit。四个 APK 的字节数与 run #14 逐个相同（`52e4bf3`/`d4c8d66` 只动文档，`pubspec` 的 `assets:` 里没有文档），sha256 却全不同（arm64 `69145927…` → `5ef34ce3…`）—— 上面「debug keystore 每轮现生成」这条又多一个数据点。
-
-**run #17（`2552bad`）：红叉而且包真的少了**，和 run #9 那种「红叉但包已发出」正好相反。发布步删掉 arm64 与 x86_64 之后，删 v7a 时 GitHub 回 `HTTP 500`（asset `713954948`），`set -e` 当场退出 —— `dev-build` 只剩 4 个附件，平板优先装的 `app-arm64-v8a-release.apk` 直接 404，而幸存那四个的 `updated_at` 还停在 run #16（正文首行却已被 `gh release edit` 写成 `2552bad`）。根因是 `gh release upload --clobber` **不是原子的**：同名附件先删干净、再逐个上传，中间失败就等于把已删的那几个丢在空中（这个删除/上传顺序由现场反推，详见 [REVIEW.md](./REVIEW.md) §17.1）。修法是把单条上传换成最多 3 次的「上传 → `gh release view --json assets` 点名核对 6 个附件 → 缺就 20 秒后整轮重来」，三次仍不齐才判红（`.github/workflows/build-apk.yml:105-142`，本机桩 `gh` 复刻过 run #17 的缺件状态并在第 2 轮恢复，取证与验证见 REVIEW §十七）。**已恢复**：带这套重试逻辑的 `b771a10` 推上去之后 run #18 `success`，`dev-build` 重新是 6 个附件，`updated_at` 全在同一轮（`03:00:49–51`），`apk-sha256.txt` 四行与 API 的 `digest` 逐字相同，`dev-build-sha.txt` == 当前 main（`b771a10…`），正文首行也同步成「对应提交：`b771a10`」。
-
-**第四轮真实验证（run #19 推 main + run #20 推 `v1.1.0` 标签，都是 `7a715c8`，2026-11-06；对应第十一轮 HIG 改造）**：run #19 的 `android` 作业 10 步全 `success`（`release`、`ios` skipped），run #20 的 `release` 作业 9 步全 `success`（`android`、`ios` skipped），两个 run 的 `annotations` 都没有新的 warning。
-
-| 事件 | 跑了哪个作业 | 发布结果 |
-| --- | --- | --- |
-| 推 main（run #19） | `android` | `dev-build` 仍是 6 个附件，`updated_at` 全在同一轮（`04:53:18–19`），正文首行同步成「最新提交：`7a715c8`」 |
-| 推 `v1.1.0` 标签（run #20） | `release` | 新建 `v1.1.0`，`prerelease=false`、`draft=false`、`published_at=04:54:26`，5 个附件 `updated_at=04:54:27–29` |
-
-| `v1.1.0` 附件 | 字节 |
-| --- | --- |
-| `app-arm64-v8a-release.apk`（平板优先） | 18,302,930 |
-| `app-armeabi-v7a-release.apk` | 15,755,052 |
-| `app-x86_64-release.apk` | 19,794,393 |
-| `app-release.apk`（通用包） | 52,775,817 |
-| `apk-sha256.txt` | 357 |
-
-- ✅ **Latest 换人了**：`/releases/latest` 返回 `v1.1.0`，标题「时笺 TimeNote v1.1.0（Android 可安装包）」，正文首行「对应提交 `7a715c8`」+ `RELEASE-NOTES.md` 全文（这一轮的说明改成了「v1.1.0 新加 / v1.0.0 已有」两段）。`v1.0.0` 那条没被动，仍是非预发布 + 5 个附件。
-- ✅ **同轮互证**：`dev-build` 与 `v1.1.0` 各自的 `apk-sha256.txt` 四行，与 API 在同一轮 asset 上给的 `digest` 逐字相同（4 个包全对得上）。
-- ✅ **「检查更新」指向这一轮**：`dev-build/dev-build-sha.txt` 取回来是 `7a715c889531bb109415881a731bcb9ffe85d748`（41 字节），与取证当时的 `main` HEAD、与两个 run 的 `head_sha` 三者逐字相同。**这条会随下一次推 main 移动**（run #16 那次已经演示过「推文档提交也会跑」），核对时看 `dev-build` 正文首行的「最新提交」而不是记死 `7a715c8`。
-- ⚠️ **同一提交、两轮构建 = 字节数全同、sha256 全不同**（`v1.0.0` 那条的老现象，这轮再中一次）：`dev-build` 与 `v1.1.0` 四个包字节逐个相同（arm64 都是 18,302,930），arm64 的 digest 却是 `11369edd…` 对 `2fa72ad1…`。所以从 dev-build 覆盖升级到正式版仍要**先卸载**；跨轮比对 sha256 无意义。
-- 与 `v1.0.0` 比：arm64 从 18,237,326 涨到 18,302,930（+65,604 字节），这轮动的是 Dart 侧（令牌层 + 设置页 + 触感），没有新增资源文件。
-- ⚠️ **本机取证只能走 API**：`https://github.com/.../releases/download/...` 直链这台机器现在是**连不上**（Node 报 `Connect TimeoutError github.com:443`，不是之前记的「截断」）；357 / 41 字节的小文件走 `api.github.com/repos/.../releases/assets/{id}` + `Accept: application/octet-stream` 一次就过。`Accept: application/vnd.github.raw` 反而不生效（照样回 JSON），要 raw 就用 `octet-stream`。
-
-**第五轮真实验证（run #22 推 main + run #23 推 `v1.2.0` 标签，都是 `5c2722c`，2026-11-06；对应第十二轮「不强制横屏 + 开始页」R4）**：run #22（id `42172623258`，创建 06:09:07 / 结束 06:15:26）的 `android` 作业 13 步全 `success`（`release`、`ios` skipped），run #23（id `42172663212`，创建 06:09:30 / 结束 06:15:46）的 `release` 作业 12 步全 `success`（`android`、`ios` skipped）。两个作业的 `annotations` 各 2 条，都还是那两条长期的：`.github:L4` 的 `Node.js 20 is deprecated` warning 与 `.github:L1` 的 `ubuntu-latest 将于 2026-10-19 迁到 Ubuntu 26` notice，没有新增红叉。
-
-| 事件 | 跑了哪个作业 | 发布结果 |
-| --- | --- | --- |
-| 推 main（run #22） | `android` | `dev-build` 6 个附件，`updated_at=06:15:21`，正文首行「最新提交：`5c2722c`」 |
-| 推 `v1.2.0` 标签（run #23） | `release` | 新建 `v1.2.0`（id `436167598`），`prerelease=false`、`draft=false`、`target_commitish=main`、`published_at=06:15:37`，5 个附件全部 `uploaded` |
-
-| `v1.2.0` 附件 | 字节 |
-| --- | --- |
-| `app-arm64-v8a-release.apk`（平板优先） | 18,368,630 |
-| `app-armeabi-v7a-release.apk` | 15,755,220 |
-| `app-x86_64-release.apk` | 19,794,561 |
-| `app-release.apk`（通用包） | 52,841,521 |
-| `apk-sha256.txt` | 357 |
-
-- ✅ **Latest 换人**：`/releases/latest` 返回 `v1.2.0`，标题「时笺 TimeNote v1.2.0（Android 可安装包）」，正文首行「对应提交 `5c2722c`（Flutter 3.47.8…）」+ `RELEASE-NOTES.md` 全文。`v1.1.0` 那条没被动（仍 `prerelease=false`、5 个附件、`published_at=04:54:26`）。
-- ✅ **「检查更新」仍指得对**：`dev-build/dev-build-sha.txt` 取回 `5c2722cf14a9c2275eaa2545804daafd069d4b43`（41 字节），与本机 `git rev-parse HEAD` 逐字相同。第八/九轮落地那天这条还是 404（要等一次推 main 才第一次出现），自 run #14 起每轮都在动。
-- ✅ **同轮互证**：`v1.2.0` 与 `dev-build` 的 `apk-sha256.txt` 四行，分别与 API 在对应 asset 上给的 `digest` 逐字相同（arm64 `d1bf49cf…` / `06d053f7…`）。取正文仍只能走 `api.github.com/repos/.../releases/assets/{id}` + `Accept: application/octet-stream`；`github.com/.../releases/download/...` 直链这台机器现在回空。
-- ⚠️ **同一提交两轮构建 = 字节全同、sha256 全不同**（第三次中）：`dev-build` 与 `v1.2.0` 四个包字节逐个相同（arm64 都是 18,368,630），digest 却分别是 `06d053f7…` 与 `d1bf49cf…` —— 从 dev-build 覆盖升级到正式版仍要先卸载。
-- 与 `v1.1.0` 比：arm64 从 18,302,930 涨到 18,368,630（+65,700 字节），这轮多了一个开始页文件与一条设置卡，没新增资源。
-- ✅ **本机同 commit 重出对照**（数字见上面「本机出包」两节）：本机 arm64 18,376,683 对 CI 18,368,630（+8,053，本机没注 `BUILD_SHA`、CI 注了，且 debug keystore 每轮现生成）；release HAP 23,191,729 B / 21 个文件，包内 `module.json` 的 `"orientation":"auto_rotation"` 与 `pack.info` 的 `"deviceType":["phone","tablet"]` 复验通过，`libapp.so` 里那条 40 位 SHA 命中 1 次。
-
-判读规则只有一条，两种红叉都适用：**看 `releases/tags/dev-build` 的 asset 列表齐不齐，不看 run 的红叉**；顺带对一下 `dev-build-sha.txt` 的内容是否等于 `main` 的 HEAD —— run #17 就是正文已被 `gh release edit` 改成 `2552bad`、而 `dev-build-sha.txt` 还停在 `d4c8d66`，说明文字和附件能来自不同轮。
-
-## 🖼 界面风格（11 套整屏令牌）
-
-参考 [luckymaomi/ui-styles](https://luckymaomi.github.io/ui/styles/) 的 10 套风格页移植而来，令牌集中在 `lib/theme/ui_style.dart`（`uiStyleSpecs`，每套 `(亮, 暗)` 两版）。
-
-| 设置里的名字 | 参考页 | 哪一版是页面原值 |
-| --- | --- | --- |
-| 无装饰（原样） | — | 两版都是引入令牌层之前的外观，回归基线 |
-| 编辑部 | [/editorial/](https://luckymaomi.github.io/ui/styles/editorial/) | 亮版（米白 + 墨黑 + 0 圆角细线，衬线大字距） |
-| 软胶拟物 | [/neumorphism/](https://luckymaomi.github.io/ui/styles/neumorphism/) | 亮版（`#e0e5ec` + 一暗一亮双影） |
-| 便当格 | [/bento-grid/](https://luckymaomi.github.io/ui/styles/bento-grid/) | 两版（`#fafafa` / `#18181b`，暗版卡片描边按 zinc 色阶推导） |
-| 自然有机 | [/natural-organic/](https://luckymaomi.github.io/ui/styles/natural-organic/) | 亮版（土色族 + 团块 + 颗粒） |
-| 复古印刷 | [/retro-vintage/](https://luckymaomi.github.io/ui/styles/retro-vintage/) | 亮版（`#f5e6d3` + 3px 线框 + 大写衬线） |
-| 暗色分层 | [/dark-mode/](https://luckymaomi.github.io/ui/styles/dark-mode/) | 暗版（slate 色阶 + 上缘内高光） |
-| 系统毛玻璃 | [/macos-vibrancy/](https://luckymaomi.github.io/ui/styles/macos-vibrancy/) | 暗版（`1c1c1e/2c2c2e/3a3a3c` 分层 + 1px 亮线） |
-| 超现实 | [/surrealism/](https://luckymaomi.github.io/ui/styles/surrealism/) | 两版（`#1a1a3e→#c38d94` 渐变 / `#f0ece4`） |
-| 哥特洛丽塔 | [/gothic-lolita/](https://luckymaomi.github.io/ui/styles/gothic-lolita/) | 暗版（黑紫渐变 + `#e5e5e5`） |
-| 视觉小说 | [/visual-novel/](https://luckymaomi.github.io/ui/styles/visual-novel/) | 亮版（天空四段渐变 + 白 70% 面板） |
-
-- 表里没有标出的那一版按「同族色阶反转」补齐，每条令牌的 `provenance` 字段用 `page:` / `derived:` 区分了来源，测试会检查这个标记非空。
-- **正交**：界面风格只换「环境」（背景、数字底板的填充/描边/光影/圆角、标签字体与字距），10 种数字风格仍决定「字形」；`无装饰（原样）` 下渲染路径与之前完全一致。
-- **文字层另有一道兜底**：`muted` / `accent` 是皮肤给的装饰色，亮色版 11 套里 7 套的 `muted`、8 套的 `accent` 撑不起文字（其中 8 套把 alpha 拉满也不够，是明度问题不是透明度问题）。所以标签与文字按钮一律用派生的 `labelInk` / `accentInk`，`contrastRatio` / `ensureContrast` / `compositeOver` 三个函数就住在 `ui_style.dart`，测试把 22 套令牌 × {底色, 面板合成色} 钉在 ≥4.5:1。
-- **性能**：颗粒/团块/花纹是静态 `CustomPaint` + `RepaintBoundary`，与每秒重建的时钟子树分离，随机数按固定种子生成，不逐帧重算。
-- **已实机验证**：11 套风格在 Android 模拟器（Pixel 7 AVD，density 420，横屏 914x411 逻辑像素）逐套切过，整屏底色与数字底板确实随风格变化，切换前后截图对过；widget 侧另有 800×600 全矩阵冒烟（无异常、无溢出）。
-- **未验证**：鸿蒙侧 —— release HAP 未签名装不上真机，`serif`/`monospace` 在 HarmonyOS 的字体族映射因此没实测过（Android 侧已实测正常）。新默认的底色「跟随系统」同样没在鸿蒙真机验证：`flutter_ohos` 的 embedder 确实回传 `platformBrightness`（源码读过，见 [HANDOFF-OHOS.md](./HANDOFF-OHOS.md) §5 第 9 条），缺的是运行时取证。
-
-## 🎨 字体（免费商用，放入 assets/fonts 并在 pubspec 声明）
-
-| 样式 | 字体 |
-| --- | --- |
-| 思源黑体（细/常规） | Source Han Sans CN |
-| 粗黑力量 | 站酷快乐体 ZCOOL KuaiLe |
-| 手写文艺 | 仓耳渔阳体 |
-| 得意黑潮流 | 得意黑 Smiley Sans |
-| 点阵/普惠 | 阿里巴巴普惠体 |
-
-`styleFontMap` 里的 family 名在字体未打包时是惰性的，Flutter 自动回退系统字体，不影响运行，也不会让 10 种风格退化成同一种画面。
-
-## 📝 待办
-
-- [x] 连设备验证常亮 / 横屏 / 提示音 / 倒计时与抽屉 —— Android 模拟器（Pixel 7 AVD）已逐项目视 + `dumpsys` 验过，详见 [HANDOFF-OHOS.md](./HANDOFF-OHOS.md) §6.6；顺带抓出并修掉一个只有真机才暴露的缺陷（横屏软键盘把自定义倒计时弹窗压瘪，输入框整块不可见），补了 2 条回归测试。**待补**：实体平板 + 华为鸿蒙真机。
-  - ⚠️ 边缘滑动开抽屉没单独实测（点按钮 `openEndDrawer()` 那条路径验过，滑动本身是 Scaffold 自带）。
-- [ ] 下载并打包 5 款免费商用字体（= 需求 R14：数字字体子集化，中文字体不动）
-- [x] **首个正式版已发布**：`v1.0.0`（2026-11-05，run #15 的 `release` 作业 9 步全绿，非预发布且 `--latest`）。以后发版 = 打 `v*` 注解标签再推，CI 单独构建；日常自测仍走 `dev-build` 那条（6 个附件）。
-- [x] **第二个正式版已发布**：`v1.1.0`（2026-11-06，第十一轮 HIG 改造，run #20 的 `release` 作业 9 步全绿，`/releases/latest` 已指向它；同一 commit 的 run #19 把 `dev-build` 也刷到了 `7a715c8`）。取证见上面「第四轮真实验证」。
-- [x] **第三个正式版已发布**：`v1.2.0`（2026-11-06，第十二轮 R4 开始页，run #23 的 `release` 作业 12 步全绿，`published_at=06:15:37`、5 个附件；同一 commit 的 run #22 把 `dev-build` 刷到 `5c2722c` 且 6 个附件齐）。取证见上面「第五轮真实验证」。
-- [x] **设置页「手动检查更新」**（需求 R21）已上线：按下才发一次请求，比对 `dev-build-sha.txt`（实测内容与那一轮 `$GITHUB_SHA` 逐字相同），不自动下载。⚠️ 真机上按那一次的效果还没由用户确认过。
-- [x] **不再强制横屏**（需求 R4）：开始页选横 / 竖（默认横屏），点「开始」才锁方向并进沉浸，设置里「屏幕排向」随时改。原清单写的是「三选（自动 / 强制横 / 强制纵）」，用户当轮的原话只要了「可选横屏还是竖屏，默认横屏」，所以做的是两档；「自动」这一档没落地，将来要就在开始页再加一颗。
-- [ ] 还在排期的需求（编号来自需求清单，逐条待用户点头）：R2 页面居中、R3 三块色差、R6 显示单位勾选、R9 待办增强（分类/到期/优先级）、R10 纪念日倒计时与到点提醒（要新增通知依赖，鸿蒙与 Android 不是一套）、R15 整页排版参考。R7 电流/水流特效与 R8「待办写不进去」由用户明确暂缓。
-- [x] 定下 `gradle-wrapper.jar` 与图标是否纳入版本库 —— 图标 5 个 dpi 已入库；wrapper 决定**不入库**，改为删掉 CI 的下载步骤（Flutter 自己会注入，已按干净检出实测），少一个 `raw.githubusercontent.com` 依赖。
-- [ ] 华为鸿蒙（Flutter-OH）适配：**已打通本机出包，debug 与 `--release` 都跑过，`52e4bf3` 与 `5c2722c` 各复跑一次** —— `tool/build_hap.sh` 一键出未签名 HAP（AOT release：`52e4bf3` 23,093,027 → `5c2722c` 23,191,729 字节；debug 125,984,972 字节是 `52e4bf3` 那轮的，本轮没重跑），平板/设备类型声明、「时笺」文案、图标已入库并在包内复验，`--dart-define=BUILD_SHA` 也确认落进了两种包。剩下的只有签名（要华为账号在 DevEco 申请调试证书）与装到真机上的运行验证。细节、复现命令与待办见 [HANDOFF-OHOS.md](./HANDOFF-OHOS.md)
-  - ✅ 【2026-11-06 关闭】第十二轮（R4）把 `ohos/entry/src/main/module.json5:24` 的 ability `orientation` 从 `auto_rotation_landscape` 改成 `auto_rotation` 后，本轮已在 `5c2722c` 重出 release HAP 并解包复验：`module.json` 交出 `"orientation":"auto_rotation"`，`pack.info` 的 `deviceType` 仍是 `["phone","tablet"]`，`libapp.so`（5,768,112 B）里那条 40 位 SHA 命中 1 次，包内 21 个文件、未压缩合计 23,188,479。真机上手势转屏还没验过（要签名后的包）。
-- [ ] iOS 签名与上架
-
-## 📄 License
+## License
 
 [MIT](./LICENSE)

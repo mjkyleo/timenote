@@ -965,3 +965,150 @@ arm64 APK 拆解同步刷新：未压缩 18,727,546 / 66 文件，引擎 11,763,
 
 - 真机横/竖切换、鸿蒙 `auto_rotation` 的实际旋转行为、设置里「检查更新」按下那一次 —— 仍待用户设备。
 - `--release` 不带 `--no-codesign` 的退出码 1 只在文档里记了口径，脚本本身没改（要不要在脚本里补默认值，等用户发话）。
+
+---
+
+## 二十一、第十三轮：把「功能清单」组织成一个 App（底部三标签 + 独立待机屏）
+
+用户原话：「就是不像一个手机 app，功能是没有问题的，但是整个界面的一个布局跟 app 不一样，配有一个导航栏（就是下面的）下面最起码有三个东西吗，一个是时间相关的，一个是待办，一个是设置」「就是没有好好组织一个 app 界面，直接把功能列出来了，每个页面显示什么都没有搞清楚」「readme 不要写那么多东西，需要大幅度缩减……讲功能就行，不用讲怎么实现的」。
+
+所以这一轮**不加功能**，只重排信息架构：原来一屏里同时挂着大数字、六个胶囊、右上角齿轮与清单图标，清单还是从右边拉出来的抽屉 —— 每个功能都在，但「这一页是干什么的」没有答案。两处由用户拍板：全屏待机改成**时间页里一颗「进入待机」**；**开始页整个去掉**，排向挪进设置且只管待机屏。
+
+### 21.1 依据（读的是 skill 里的 HIG 原文，不是凭印象）
+
+| 这一轮的做法 | 原文 | 落点 |
+| --- | --- | --- |
+| 顶级导航用三颗标签，标签只换页不执行动作 | `tab-bars.md:16`「**Use a tab bar to support navigation, not to provide actions.**」 | 起表 / 暂停 / 进入待机这些**动作**全留在时间页里，没有一颗被塞进导航条 |
+| 三页共用 `IndexedStack`，切回来输入到一半的字还在 | `tab-bars.md:12`「…quickly switch between sections of the view **while preserving the current navigation state within each section**」 | `app_shell.dart` 的 `IndexedStack`；测试「切到别的标签再回来，输入到一半的字还在」 |
+| 待机屏盖掉导航条是允许的，但必须自己能出来 | `tab-bars.md:18`「Make sure the tab bar is visible…The exception is when a **modal view** covers the tab bar, because a modal is temporary and self-contained」 | 待机是 push 上去的一层，左上角 `Icons.fullscreen_exit` 退出（`standby_view.dart:191`） |
+| 6 秒淡出控件、点屏幕唤回 | `going-full-screen.md:28`「…temporarily hiding toolbars and navigation controls…let people **restore the hidden elements with a familiar gesture or action like tapping**」；`:26`「**Let people choose when to exit full-screen mode.**」 | `_chromeHideDelay = 6s`（`standby_view.dart:19`）、`Listener.onPointerDown → _pokeChrome`（`:148`/`:70`）；退出只由用户按，不会自动发生 |
+| 门限按**可用空间**判，不按设备/方向判 | `layout.md:66`「**Determine layout based on size classes, not device type or orientation.**」 | 三条门限全是 `LayoutBuilder` 的宽高（§21.4），没有一处读 `Orientation` 或平台 |
+| 空间变了功能不变，只变「露出多少」 | `layout.md:72`「**Keep functionality the same as size classes change**…you can change the amount of functionality that's visible onscreen」 | 窄屏底部条 / 宽屏左侧栏，三颗目的地一个不少；待办页高度不够时只收起进度那一行，输入与清单都在 |
+| 空状态给得出下一步 | `writing.md:44`「**Provide clear next steps on any blank screens.**…give them a button or link to do so if possible」 | 「暂无待办，添加一条吧」+ 一颗「添加待办」（把焦点交给输入框），本轮改成够高居中、不够能滚 |
+
+### 21.2 文件地图（旧 → 新，行数是 `wc -l` 实测）
+
+| 现在 | 行数 | 从哪来 |
+| --- | --- | --- |
+| `lib/app/app_shell.dart` | 136 | 新增：AppBar 标题 + `IndexedStack` 三页 + `NavigationBar`/`NavigationRail` |
+| `lib/core/system_ui.dart` | 29 | 新增：`AppSystemUi.enterApp()`（`:14`）/ `enterStandby(orientation)`（`:22`） |
+| `lib/flip_clock/clock_page.dart` | 284 | 由 `clock_view.dart` 拆出「外壳里那一页」：读数卡 `:52`、起表卡 `:139`、计时中卡 `:189`、待机卡 `:108`（**列表里的顺序是读数 → 起表 →（计时中）→ 待机**，见 §21.5 缺陷三）；进待机前 `clearSnackBars()` 在 `:125`（缺陷四） |
+| `lib/flip_clock/standby_view.dart` | 336 | 由 `clock_view.dart` 拆出「全屏那一层」：沉浸、锁向、6 秒淡出、归零彩蛋 |
+| `lib/flip_clock/controls.dart` | 130 | 由 `clock_view.dart` 拆出控件与自定义弹窗（两屏共用） |
+| `lib/todo/todo_page.dart` | 170 | 取代 `lib/todo/todo_drawer.dart`（143 行，已删） |
+| `lib/main.dart` | 75 | `home:` 从 `StartView` 改成 `AppShell` |
+| `test/support/app_harness.dart` | 75 | 取代 `test/support/pass_start.dart`（38 行，已删）：`tapTab` / `enterStandby` / `exitStandby` / `wakeChrome` |
+| 已删 | — | `lib/flip_clock/clock_view.dart`（560 行）、`lib/start/start_view.dart`（162 行）、`lib/todo/todo_drawer.dart`（143 行）、`test/support/pass_start.dart`（38 行） |
+
+`git diff --numstat`（已跟踪的那部分）：`test/app_widget_test.dart` **+424/−141**（现 1263 行）、`lib/settings/settings_page.dart` +34/−41、`test/progress_decor_test.dart` +15/−9、`test/ui_style_test.dart` +10/−32、`lib/main.dart` +5/−5、`README.md` **+47/−342**、`RELEASE-NOTES.md` +14/−2、`enum_def.dart` / `constants.dart` / `app_providers.dart` / `pubspec.yaml` 各 2–3 行（全是「开始页」口径改成「待机屏」+ 版本号）。新增的 7 个文件是 untracked，`--numstat` 不计，行数见上表。
+
+### 21.3 每页显示什么（这一轮真正回答的问题）
+
+| 标签 | 这一页只干这件事 | 页内顺序 |
+| --- | --- | --- |
+| **时间** | 看时间、起一段计时、进全屏待机 | 读数 + 日期一张卡 → 「开始一段计时」（5 / 10 / 25 / 45 预设、自定义、回到时钟）→ 计时中的进度与暂停 / 继续 / 重来 / 停止 → 「进入待机」 |
+| **待办** | 清单本身 | 进度一行（还剩几件 / 共几件 + 清除已完成）→ 输入行 → 清单 / 空状态 |
+| **设置** | 改外观与行为 | 宽屏左预览右选项，窄屏上预览下选项；七张分区卡顺序不变 |
+| （全屏一层）**待机** | 只有大数字 | 翻页读数 + 进度层 + 归零彩蛋；控件 6 秒淡出，左上角退出 |
+
+拆文件时顺手收掉一处**两套预设对不上**：自定义倒计时弹窗里的快捷键原来是硬编码的 `const [15, 30, 45, 60]`（`git show HEAD:lib/flip_clock/clock_view.dart` 的 `:539`），而外面那排起表芯片走的是 `AppConstants.countdownPresets` = 5 / 10 / 25 / 45（同文件 `:370`）—— 同一个 App 里两处「快捷时长」不一样。现在弹窗也读同一个常量（`lib/flip_clock/controls.dart:109`，常量本身在 `lib/core/constants.dart:26`，本轮没动）。这是**用户可见的变化**，已写进 `RELEASE-NOTES.md` 的 v1.3.0；那条弹窗测试的断言也从硬编码 `60` 改成 `AppConstants.countdownPresets.last`，以后改预设不会再让测试与画面脱节。
+
+外壳三页**始终跟随系统旋转**，排向那一档只作用于待机屏（`enum_def.dart` 的 `AppOrientation` 文档与 `app_providers.dart:22` 的字段注释都改成了这个口径）。
+
+### 21.4 三条门限，三个不同的理由（都是量出来的，不是抄同一个数）
+
+外壳的固定开销实测：**AppBar 56 + NavigationBar 80 = 136**（两个 `closeTo` 断言钉在「窄屏给底部导航栏」那一例里）。横屏手机 914×411 逻辑 → 页体只剩 **275** 高。
+
+| 门限 | 现址 | 值 | 为什么是这个数 |
+| --- | --- | --- | --- |
+| 底部条 vs 左侧栏 | `app_shell.dart:66` | `maxWidth >= 760 && maxHeight >= 600` | 高度那一半原来照抄设置页写 400，横屏手机整屏 411 高**刚好过线** → 被当平板，拿到竖排三颗带文字的 `NavigationRail`；键盘一弹页体只剩 130.3，而这三颗实测要 180 高 → **溢出 50px**（`constraints: 0.0<=w<=Infinity, 0.0<=h<=130.3`）。门限提到 600 后手机横竖都走底部条。注意 `LayoutBuilder` 包在 `Scaffold` **外面**（`:61`），量到的是整屏高不是被键盘压矮的页体高，所以门限不能按「键盘后还剩多少」来定 |
+| 设置页两栏 vs 上下叠 | `settings_page.dart:46` | `maxWidth >= 760 && maxHeight >= 260`（原 400） | 这一页现在被外壳吃掉 136，411 高只剩 275；门限还写 400 就等于横屏手机永远上下叠，预览按 42% 吃掉 115 后选项只剩一条缝。260 让「宽够 + 还剩 275」的横屏手机继续两栏 |
+| 待办页收起进度行 | `todo_page.dart:63` | `constraints.maxHeight < 160` | 键盘弹起来时这一页实测只剩 **138.3**（914×411，键盘 217 逻辑）与 **104**（640×360，键盘 200 逻辑），减掉 20 内边距是 118.3 / 84。进度行 + 12 间距是死高度，先让它退场（标题栏已经写着「待办」），把高度留给输入行与清单 |
+
+### 21.5 四个真缺陷 + 反向验证（撤掉修复看测试变红）
+
+**缺陷一：宽屏判定的高度门限太低**（§21.4 表里第一条）。反向验证时先发现**测试盖不住**：把门限改回 `>= 400`，原有那条键盘用例照样绿 —— 它只跑 1180×820 与 960×600 两档，都是真平板。补了 AVD 的真实几何（2400×1080@2.625 → 914×411 逻辑，`FakeViewPadding(bottom: 570)` = 217 逻辑）才红，报的就是上面那条 50px。
+
+**缺陷二：待办页在键盘下挤成一团**。门限修好后新用例**仍然红一次 50px**，用临时探针（跑完就删的 `zz_probe_test.dart`）逐档量才定位到不是导航条，是**空状态那个死高度的 `Column`**（`Expanded` 只拿到 30.3 高）；640×360 那档另有一条 **4px** 的外层 `Column` 溢出。修法两处：`tight < 160` 收起进度行；空状态从 `Center(Column)` 改成 `LayoutBuilder → SingleChildScrollView → ConstrainedBox(minHeight: box.maxHeight) → Center → Column(min)`（`todo_page.dart:124`）—— 够高就居中，不够就滚，**不用 `FittedBox` 缩字**（会把「下一步」那颗按钮缩到看不见，违反 `writing.md:44`）。
+
+反向验证（新用例「横屏手机弹键盘：待办页不溢出，输入行在键盘上方，空状态滚得到」）：
+
+| 撤掉什么 | 结果 |
+| --- | --- |
+| `tight` 改成 `const false` + 空状态还原成 `Center(Column)` | **红**：`A RenderFlex overflowed by 50 pixels on the bottom.`，reason 打出 `914.2857142857143×411.42857142857144 弹键盘时溢出` |
+| 还原修复 | 绿；新用例两档（914×411 / 640×360）与原有键盘用例三档（1180×820 / 960×600 / 914×411）`takeException()` 全 null |
+
+新用例同时钉住三件正向的事：输入框高度 > 0 且 `bottom <= 屏高 − 键盘`（不许被盖住）、空状态**必须存在可滚容器**、键盘收起来后进度行**要回来**。
+
+**缺陷三：时间页把「进入待机」摆在了起表前面**（这条是模拟器截图看出来的，测试全绿也照样错）。`ListView` 的子序原来是 读数 → **待机卡** → 起表卡 →（计时中），而 `README.md:16`、`RELEASE-NOTES.md:27` 与上面 §21.3 写的都是「…以及『进入待机』」在最后 —— 三份文档一致、代码不一致，说明是拆文件时摆错了位置，不是文档笔误。按 §21.1 引的 `tab-bars.md:16`，导航与动作分了工，动作就该留在页内；页内谁在上是 craft 判断：**起表是这一页的主动作，待机是跳去另一屏的二级目的地**，把目的地摆在前面等于让用户先滚过一张说明卡才够得到 5 / 10 / 25 / 45。所以改代码不改文档：待机卡挪到列表末尾（`clock_page.dart:44-46`，那行注释就是拦着以后又被挪回去），并补一条用例钉住上下顺序（`app_widget_test.dart:429`）。
+
+| 撤掉什么 | 结果 |
+| --- | --- |
+| 待机卡挪回第二位（起表之前） | **红**：`Expected: a value less than <352.5>` / `Actual: <432.0>`，reason「待机是二级目的地，不能把起表挤出首屏」（`app_widget_test.dart:437`，390×844 竖屏） |
+| 还原修复 | 绿；同一例点「25 分」起表后再量「起表 → 进行中 → 进入待机」三段顺序，`takeException()` null |
+
+写这条用例时先红过一次**与顺序无关**的错：起了倒计时就在 body 结束前必须 `stopTicker(tester)`（`app_widget_test.dart:156`），否则 flutter_test 的收尾断言报 `!timersPending` —— `ClockNotifier` 的 250ms ticker 要到 `tearDown` 的 `container.dispose` 才取消，那时已经晚了。
+
+**缺陷四：待办页的撤销条跟着铺进全屏待机**（模拟器 19/20 号截图：大数字底下压着一条「已删除「smoke」」+ 撤销，控件 6 秒淡出了它还在）。撤销条挂在**根 `ScaffoldMessenger`** 上（`lib/todo/todo_item.dart:47`），而待机屏自己也是一层 `Scaffold`（`standby_view.dart:149`），messenger 会把条发给在册的 Scaffold —— 于是别的页的临时提示压在了「只该有大数字」的那一屏上，还带着一个能改待办列表的按钮。修法一行：进待机前 `ScaffoldMessenger.of(context).clearSnackBars()`（`clock_page.dart:125`，唯一入口就是这颗按钮）。回归用例 `app_widget_test.dart:448`：先删一条造出撤销条，再进待机，断言 `SnackBar` 不在树上。
+
+| 撤掉什么 | 结果 |
+| --- | --- |
+| 注释掉 `clearSnackBars()` 那一行 | **红**：`Expected: no matching candidates` / `Actual: Found 1 widget with type "SnackBar"`，reason「撤销条跟着铺进了全屏待机，压在大数字下面」 |
+| 还原修复 | 绿；全套 224 例绿 |
+
+### 21.6 flutter_test 本轮新踩的四个坑（都实测，写下来别再踩）
+
+1. **`IndexedStack` 把没选中的页放在 Offstage**：它照样 build/layout，但 `find` 默认 `skipOffstage: true` 看不见。探针第一版报 `Found 0 widgets with type "TodoPage"`，改成 `find.byType(TodoPage, skipOffstage: false)` 才量得到。
+2. **`RenderFlex` 的溢出是在 paint 阶段报的**：Offstage 的页不 paint，所以**溢出存在但 `takeException()` 是 null**，一点标签切过去才炸。上一条坑和这一条叠在一起，就是「测试全绿、真机一屏黄条」。
+3. **`Scaffold.bottomNavigationBar` 在键盘后面，不在键盘上面**：实测 914×411 + 217 insets 时导航条 `Rect(0, 331.4, 914.3, 411.4)`，整块被盖住。所以「键盘弹起来时把导航条藏掉」这件事**不必做**；真正被压矮的是页体（`Rect(0, 56, 914.3, 194.3)`，138.3 高）。
+4. **`SystemChrome` 那两个调用不能 await**：`AppSystemUi.enterApp/enterStandby` 写成 `static void` 而不是 `Future`（`system_ui.dart:12-13` 的注释就是这条）—— fake-async 里 await 单向通道会挂住。测试侧靠 `setMockMethodCallHandler(SystemChannels.platform, …)` 把方向与 uiMode 的参数收进列表再断言。
+
+另外 `enterStandby()` 这个 helper 的收尾条件写的是「**外壳还在树上**」而不是「待机屏出现了」：路由一过渡就能在树里找到 `StandbyView`，可那 300ms 里底下那页还没被摘掉，全局 finder 会把两屏的同款控件一起数进来（实测两条 `LinearProgressIndicator`）。
+
+### 21.7 README 大幅精简：370 → 75 行
+
+`git show HEAD:README.md | wc -l` = **370**，现在 **75**（`--numstat` +47/−342）。删掉的是技术栈表、目录结构、测试缝表、本机出包命令、18MB 拆包说明、gradle 镜像、CI 五轮取证、风格 provenance 表、字体表 —— **每一条都先确认在别处有档**（`REVIEW.md` §8/§9.10–9.12、`HANDOFF-OHOS.md` §1/§3/§6.5，或代码里的令牌本身），不是删掉证据。
+
+留下的只有：一句话定位 → 下载（链到 `/releases/latest`，**不写死版本号**，免得 README 声称一个还没发的版本）→ 界面三标签表 + 待机屏 → 功能（三组）→ 开发四条命令 → 还没做 → License。
+
+功能那三组里的数字本轮又数了一遍：`enum_def.dart:37` 的 `FlipAnimStyle` **25 个成员**（减掉 `autoMix` = 24 种 + 混合轮换）、`:77` 的 `ProgressDecor` **9 个**（减掉 `none` = 8 件）、`:90` 的 `ClockVisualStyle` **10 个**、`:111` 的 `UiStyle` **11 个**；`py -c "import json;print(len(json.load(open('assets/data/quotes.json',encoding='utf-8'))))"` → **520**。七张分区卡的标题与顺序按 `settings_page.dart:93/113/126/135/153/164/184` 核对，「待机屏排向」这个标签在 `:165`（「屏幕与声音」卡内）。
+
+### 21.8 本轮数字与边界
+
+- `flutter analyze` → **No issues found! (ran in 6.9s)**。
+- `flutter test` → **224 例全绿**（`00:42 +224: All tests passed!`；第十二轮是 214 例，本轮先补到 222，视验发现缺陷三、缺陷四后又各 +1）。注意静态 `grep -c testWidgets` 只有 153，差额来自 `ui_style_test` / `progress_decor_test` 里的矩阵循环 —— **例数以 runner 报的为准**。
+- 版本 `1.3.0+4`（新增用户可见的导航结构 + 去掉开始页 = 次要版本，build 号同步 +1；版本号只在 `pubspec.yaml` 一行）。
+- **出包边界**：为了上模拟器视验，本轮重出了两次 **x86_64 debug** 包 —— `flutter build apk --debug --split-per-abi --target-platform android-x64`，Gradle `assembleDebug` 23.7s / 24.3s，最终产物 `build/app/outputs/flutter-apk/app-x86_64-debug.apk` = **95,766,874 B**（versionCode 4004 = 4 + x86_64 偏移 4000，`adb install -r` 原地覆盖，没卸载、没丢数据：重启 activity 后待办还在）。**release APK 与 HAP 都没重出**，`HANDOFF-OHOS.md` §0/§6.5/§8 里那些字节数仍是 `5c2722c`（v1.2.0）的产物。
+- **没做**：真机（只上了模拟器）、鸿蒙侧 `NavigationBar` 的手势条避让、动画观感（按约定归用户判）；提交 / 推送 / 打标签按约定**等用户授权**。
+
+### 21.9 模拟器视验取证（`build/smoke-r13/`，32 张，gitignore 不入库）
+
+环境：emulator-5554，x86_64，1080×2400@420（dpr 2.625 → 逻辑 411×914 竖 / 914×411 横）。装的是本轮重出的 x86_64 **debug** 包（versionCode 4004，`adb install -r` 原地覆盖）。截图用 `adb exec-out screencap -p > 本地.png`（Git Bash 会把 `/sdcard/…` 路径改坏，别走 `adb shell screencap /sdcard`）。点按坐标就是截图像素坐标。
+
+| 截图 | 看到什么 | 结论 |
+| --- | --- | --- |
+| 01 / 04 | 竖屏时间页：读数卡 → 起表卡（5/10/25/45 + 自定义 + 回到时钟）→ 待机卡，底部三标签「时间 / 待办 / 设置」贴下沿，选中项有 pill | 缺陷三修好后的顺序；导航条在窄屏是 `NavigationBar`，与 §21.3 一致 |
+| 02 | 待办空态：标题 + 「还没有待办」+ 输入行 + 居中空态文案与「添加待办」按钮 | 空态在竖屏够高时居中（§21.5 缺陷二那条 `LayoutBuilder` 分支） |
+| 03 | 竖屏设置页：预览卡（10:10）在上、分区卡单列往下排，底部导航「设置」选中 | 760×260 门限在 411 宽下走单列，符合 §21.4 |
+| 06 / 07 / 12 | 待办列表有项；12 是 **activity 重启之后**同一列表 | Hive 落盘在覆盖安装 + 重启后仍在，`install -r` 没丢数据 |
+| 14 | 竖屏弹键盘：输入行在 IME 上方、焦点框可见，**底部导航整块在 IME 后面** | 与 §21.6 坑 3 的实测一致：导航条不必躲键盘，被压矮的是页体 |
+| 15 / 16 | 删除后撤销条「已删除「…」」+ 撤销，出现在列表页内 | 撤销条归属正确（根 messenger 发给当前页） |
+| 17 | 点撤销后被删的那条回到列表 | `restoreTodo(item, index)` 真的恢复 |
+| 18 | 旋转中途的一帧（半竖半横） | 只是过渡帧，不作布局结论 |
+| 19 / 20 | **缺陷四现场**：全屏待机的大数字底下压着撤销条；20 是控件 6 秒淡出后，条还在 | 测试全绿也照样错的那一类；修复见 §21.5 缺陷四 |
+| 24 / 25 | 退出待机回横屏外壳：状态栏 / 导航条都回来了，时间页横排 | `enterApp()` 还原 system ui 生效 |
+| 26 | 横屏待办页：输入行 + 列表 + 撤销条在导航条**上方**一条 | 横屏外壳里撤销条位置正确（它本该在待办页，不该在待机屏） |
+| 30 / 31 | **修复包**复验：先造一条撤销条再进待机，30 无条（过渡中状态栏还在）、31 七秒后全沉浸 —— 无状态栏、无导航条、无控件、无撤销条 | 缺陷四在真包上确认修好；31 就是「只该有大数字」的那一屏 |
+| 32 | 收尾：唤醒 + 点退出图标回外壳，竖屏、状态栏与底部导航都在（秒位那格是翻页动画中途帧） | 退出待机的还原路径在真包上走通；模拟器设置已还原 |
+
+**作废 / 不作结论的截图**：05 / 09（AVD 带硬件键盘，软键盘没画出来，后来 `settings put secure show_ime_with_hard_keyboard 1` 才补到 14）；08 / 10 / 11 / 21 / 22 / 23（点按落空或时机不对：BACK 在根路由把 activity  finish 回了桌面、splash 还没过、或待机控件已淡出导致第一下点按只是唤醒）；27 / 28 / 29（横屏弹键盘，见下面边界）。这些留着是为了说明取证过程，不当证据用。
+
+**边界（说清楚没验到什么）**：
+
+1. **横屏软键盘在这台 AVD 上画不出来**。只装了 Gboard + 语音输入法，`mInputShown=true` 但横屏不绘制；`ime set com.android.inputmethod.latin/.LatinIME` 被拒（没装）。所以「横屏手机弹键盘待办页不溢出」这条**只有 widget 测试钉着**（§21.5 缺陷二，914×411 + `FakeViewPadding(bottom: 570)` 与 640×360 两档），模拟器没给出视觉证据。
+2. **撤销条入场动画在 debug 包上会迟几帧**（13 还没有、15 才有）：模拟器帧饥饿，不是 app 逻辑；点验时以「条最终在不在」为准。
+3. 截图四周那圈 **4px 绿边是模拟器叠加层**，不是 app 画的 UI。
+4. 01 里「回到时钟」那颗 chip 是**选中态**（`selected: !isCountdown`，当前模式指示），不是缺陷。
+5. 待机控件 6 秒自动淡出：退出待机的点按要**先点屏幕中心唤醒**再点左上退出图标，否则第一下只唤醒（21–23 作废的原因）。
+
+视验结束已把模拟器设置还原（`settings get` 复验：`user_rotation 0`、`accelerometer_rotation 1`、`show_ime_with_hard_keyboard 0`），并退出待机回外壳（32 号截图）。

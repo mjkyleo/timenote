@@ -1,16 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'app/app_shell.dart';
 import 'core/egg_service.dart';
 import 'core/providers/app_providers.dart';
 import 'core/storage_service.dart';
 import 'settings/enum_def.dart';
-import 'start/start_view.dart';
 import 'theme/ui_style.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // 方向和沉浸都不在这里定：第一屏是开始页，它得跟着系统转、状态栏也在，
-  // 用户按下「开始」以后才由 ClockView 接管（见 flip_clock/clock_view.dart）。
+  // 方向和系统栏都不在这里定：外壳三页跟随系统，只有进「待机屏」那一层才锁
+  // （见 app/app_shell.dart 与 flip_clock/standby_view.dart）
   try {
     await StorageService.init();
   } catch (error) {
@@ -68,8 +68,8 @@ class TimeNoteApp extends ConsumerWidget {
           child: child ?? const SizedBox.shrink(),
         );
       },
-      // 第一屏是开始页：它负责问一次「横还是竖」，时钟页才是真正的主角
-      home: const StartView(),
+      // 第一屏就是 App 外壳：底部三标签，时间页里才有一键进入的待机屏
+      home: const AppShell(),
     );
   }
 }

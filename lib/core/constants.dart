@@ -5,13 +5,13 @@ import '../settings/enum_def.dart';
 class AppConstants {
   const AppConstants._();
 
-  /// 横屏两档：开始页选「横屏」或默认值时锁到这里（平板待机时钟的原始观感）
+  /// 横屏两档：待机屏选「横屏」或默认值时锁到这里（平板待机时钟的原始观感）
   static const List<DeviceOrientation> landscapeOrientations = [
     DeviceOrientation.landscapeLeft,
     DeviceOrientation.landscapeRight,
   ];
 
-  /// 竖屏两档：开始页选「竖屏」时锁到这里
+  /// 竖屏两档：待机屏选「竖屏」时锁到这里
   static const List<DeviceOrientation> portraitOrientations = [
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,

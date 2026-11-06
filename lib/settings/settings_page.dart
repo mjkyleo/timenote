@@ -10,11 +10,11 @@ import '../theme/ui_style.dart';
 import 'enum_def.dart';
 import 'style_picker.dart';
 
-/// 设置页：七张分区卡（外观 / 数字样式 / 翻页动画 / 进度显示 / 倒计时结束 /
-/// 屏幕与声音 / 关于），卡内再按小标签分组
+/// 设置标签页（外壳的第三页）：七张分区卡（外观 / 数字样式 / 翻页动画 / 进度显示 /
+/// 倒计时结束 / 屏幕与声音 / 关于），卡内再按小标签分组
 ///
 /// 左侧（窄屏时上方）是实时预览：改任何一项都能立刻看到翻页效果，
-/// 不必退回主屏去验证。
+/// 不必退回时间页去验证。标题栏由外壳给，这一页只负责页体。
 class SettingsPage extends ConsumerWidget {
   const SettingsPage({super.key});
 
@@ -35,45 +35,37 @@ class SettingsPage extends ConsumerWidget {
       child: StylePreview(state: appState),
     );
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(uiLabelText(tokens, '设置')),
-        backgroundColor: tokens.surface ?? tokens.bg,
-        foregroundColor: tokens.fg,
-      ),
-      backgroundColor: tokens.bg,
-      body: UiLayer(
-        tokens: tokens,
-        solid: true,
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            // 只看宽度会把横屏手机当平板：812×319 下左栏 2:3 分走后预览占掉
-            // 整屏高度、选项只剩 447 宽，所以高度不够就退回上下布局
-            final wide =
-                constraints.maxWidth >= 760 && constraints.maxHeight >= 400;
-            if (!wide) {
-              // 预览按屏高比例给，横屏手机上不再固定吃掉 210 让选项只剩一条缝
-              final previewHeight =
-                  (constraints.maxHeight * 0.42).clamp(140.0, 240.0);
-              return Column(
-                children: [
-                  SizedBox(height: previewHeight, child: preview),
-                  Expanded(child: options),
-                ],
-              );
-            }
-            return Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+    return UiLayer(
+      tokens: tokens,
+      solid: true,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          // 这一页现在是外壳里的一个标签，标题栏 + 底部导航条先吃掉 136：
+          // 横屏手机（914×411）只剩 275 高，但宽度还够两栏，分栏比上下叠
+          // 更能给选项留出高度；宽度不够（竖屏手机）才退回上下布局
+          final wide = constraints.maxWidth >= 760 && constraints.maxHeight >= 260;
+          if (!wide) {
+            // 预览按页体高度比例给，不再固定吃掉 210 让选项只剩一条缝
+            final previewHeight =
+                (constraints.maxHeight * 0.42).clamp(140.0, 240.0);
+            return Column(
               children: [
-                // 预览是配角：屏宽的一半在手机上会把选项挤成一条窄柱
-                Expanded(
-                    flex: constraints.maxWidth >= 1000 ? 2 : 1, child: preview),
-                Expanded(
-                    flex: constraints.maxWidth >= 1000 ? 3 : 2, child: options),
+                SizedBox(height: previewHeight, child: preview),
+                Expanded(child: options),
               ],
             );
-          },
-        ),
+          }
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // 预览是配角：屏宽的一半在手机上会把选项挤成一条窄柱
+              Expanded(
+                  flex: constraints.maxWidth >= 1000 ? 2 : 1, child: preview),
+              Expanded(
+                  flex: constraints.maxWidth >= 1000 ? 3 : 2, child: options),
+            ],
+          );
+        },
       ),
     );
   }
@@ -170,12 +162,13 @@ class SettingsPage extends ConsumerWidget {
               '文案完全随机。'),
         ]),
         _card(context, tokens, '屏幕与声音', [
-          _group(tokens, '屏幕排向（开始页那一题，随时能改）', [
+          _group(tokens, '待机屏排向', [
             for (final o in AppOrientation.values)
               item(appOrientationName(o), appState.orientation == o,
                   () => update(appState.copyWith(orientation: o))),
           ]),
-          _hint(tokens, '选完立刻转过去；开始页默认给的是横屏。'),
+          _hint(tokens, '只管「进入待机」那一屏：待机时锁到这个方向，'
+              '时间 / 待办 / 设置三页始终跟着手机当前拿法旋转。'),
           _switch(tokens, '屏幕常亮', '立即生效，防止平板息屏', appState.keepScreenOn,
               (val) => update(appState.copyWith(keepScreenOn: val))),
           _switch(tokens, '提示音', '倒计时结束时播放，与结束行为互不影响', appState.soundEnable,

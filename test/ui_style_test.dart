@@ -9,13 +9,12 @@ import 'package:timenote/core/storage_service.dart';
 import 'package:timenote/flip_clock/flip_card_widget.dart';
 import 'package:timenote/main.dart';
 import 'package:timenote/settings/enum_def.dart';
-import 'package:timenote/settings/settings_page.dart';
 import 'package:timenote/settings/style_picker.dart';
 import 'package:timenote/theme/ui_style.dart';
 
+import 'support/app_harness.dart';
 import 'support/fake_storage.dart';
 import 'support/fake_wakelock.dart';
-import 'support/pass_start.dart';
 
 void main() {
   group('令牌表完整性', () {
@@ -145,7 +144,7 @@ void main() {
       for (var i = 0; i < 3; i++) {
         await tester.pump(const Duration(milliseconds: 50));
       }
-      await passStartScreen(tester);
+      // 第一屏就是外壳的时间页，翻页读数已经在画面里，不用再过开始页
     }
 
     test('出厂默认底色是跟随系统', () {
@@ -240,44 +239,24 @@ void main() {
       expect(find.byKey(const Key('flip-plate')), findsNothing);
     });
 
-    testWidgets('11 套风格 × 黑白底色全矩阵冒烟：主屏/抽屉/设置都不报错',
+    testWidgets('11 套风格 × 黑白底色全矩阵冒烟：三页与待机屏都不报错',
         (tester) async {
+      // IndexedStack 里没选中的两页走 Offstage：照样构建与布局，所以一次 pump
+      // 就能验到三页的**构建期**异常。但 RenderFlex 溢出是 paint 阶段才报的，
+      // Offstage 不 paint —— 溢出由各页自己的用例钉（切过去才炸），别指望这一条。
       await pumpApp(tester);
       for (final style in UiStyle.values) {
         for (final base in ThemeBase.values) {
           await pick(tester, style, base);
           expect(tester.takeException(), isNull,
-              reason: '$style / $base 主屏渲染异常');
+              reason: '$style / $base 外壳三页渲染异常');
 
-          await tester.tap(find.byIcon(Icons.checklist));
-          for (var i = 0; i < 8; i++) {
-            await tester.pump(const Duration(milliseconds: 60));
-          }
-          expect(find.byType(Drawer), findsOneWidget,
-              reason: '$style / $base 抽屉没开出来');
+          await enterStandby(tester);
           expect(tester.takeException(), isNull,
-              reason: '$style / $base 抽屉渲染异常');
-          // 关掉抽屉再进设置
-          tester.state<ScaffoldState>(find.byType(Scaffold).first)
-              .closeEndDrawer();
-          for (var i = 0; i < 6; i++) {
-            await tester.pump(const Duration(milliseconds: 60));
-          }
-
-          await tester.tap(find.byIcon(Icons.settings));
-          for (var i = 0; i < 10; i++) {
-            await tester.pump(const Duration(milliseconds: 60));
-          }
-          expect(find.byType(SettingsPage), findsOneWidget,
-              reason: '$style / $base 设置页没打开');
+              reason: '$style / $base 待机屏渲染异常');
+          await exitStandby(tester);
           expect(tester.takeException(), isNull,
-              reason: '$style / $base 设置页渲染异常');
-
-          await tester.pageBack();
-          for (var i = 0; i < 10; i++) {
-            await tester.pump(const Duration(milliseconds: 60));
-          }
-          expect(find.byType(SettingsPage), findsNothing);
+              reason: '$style / $base 退出待机后渲染异常');
         }
       }
     });

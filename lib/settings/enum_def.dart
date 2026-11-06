@@ -139,9 +139,9 @@ enum FinishBehavior { stayZero, autoRestart, showEgg }
 /// [thin] 与 [thick] 一律画上，风格没给描边色时取前景色的淡版。
 enum PlateFrame { follow, none, thin, thick }
 
-/// 计时画面的排向（开始页选，进时钟后钉住）
+/// 待机屏的排向（设置里选，进待机屏时钉住）
 ///
 /// 之前全应用锁死横屏，平板待机没问题，手机竖着拿就变成「必须先转过来」。
-/// 现在不强制：默认仍是横屏（原来的观感），要竖的人点一下就走，
-/// 设置里「屏幕与声音」那张卡随时能改。
+/// 现在外壳三页始终跟随系统旋转，只有全屏待机那一层按这一档锁；
+/// 默认仍是横屏（原来的观感），设置里「屏幕与声音」那张卡随时能改。
 enum AppOrientation { landscape, portrait }
