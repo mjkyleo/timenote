@@ -194,6 +194,7 @@ RunCommandUtil.run(r, undefined, true)   // spawnSync(cmd, ["/d","/c", r], {wind
 - **坑 J｜中途 kill 掉的 Gradle 构建会留下损坏的 Kotlin 增量缓存**：下次构建报 `Could not close incremental caches in build\<plugin>\kotlin\compileDebugKotlin\cacheable\caches-jvm\jvm\kotlin: *.tab`（`package_info_plus`、`audioplayers_android` 两个任务各炸一次），异常链末端是 `IllegalStateException: Storage for [...class-fq-name-to-source.tab] is already registered`。
   ⚠️ **`flutter clean` 没用**（实测：clean、`gradlew --stop`、taskkill 掉 Kotlin daemon 16632、把可用内存从 2.2 GB 腾到 7.4 GB、`--max-workers=1 --no-parallel` 四种都试过，全部照炸）。真正的解法是**关掉 Kotlin 增量编译**：`C:\Users\86132\.gradle\gradle.properties`（此前不存在，本次新建）里写 `kotlin.incremental=false`，之后 38.3 s 正常出包。代价是 Kotlin 每次全量编译，换来的是不再卡死。
 - **坑 K｜`adb shell input tap` 用的是横屏（旋转后）坐标**：App 在 `lib/main.dart:15` 锁了横屏，屏幕物理是 1080x2400 但 `screencap` 出 2400x1080，`input tap 2000 500` 能命中右上角齿轮 —— 说明注入坐标就是横屏那套。按截图估坐标时别按竖屏换算。
+- **坑 L｜`gh release upload --clobber` 不是原子的**：同名附件是**先删干净、再逐个上传**（这个顺序由 run #17 的现场反推，见 REVIEW §17.1），中途任何一次失败都会让**已经删掉的那几个永久缺件**。run #17 实测：删 `app-armeabi-v7a-release.apk`（asset `713954948`）时 GitHub 回 `HTTP 500`，`set -e` 让整步退出，此前已删的 arm64 与 x86_64 没机会传回来。判据不看红叉、看 `releases/tags/dev-build` 的 asset 名字列表；本轮已在 CI 里改成「上传 → 点名核对 6 个附件 → 缺则 20 秒后整轮重来，最多 3 次」。
 
 
 ---
@@ -269,6 +270,12 @@ RunCommandUtil.run(r, undefined, true)   // spawnSync(cmd, ["/d","/c", r], {wind
   - 本轮改动仍只有文档（`README.md` / `REVIEW.md` / `HANDOFF-OHOS.md`），`flutter analyze` = `No issues found!`（79.7 s）、全量 `flutter test` = `+202: All tests passed!`；`pubspec.yaml` 的 `assets:` 只声明 `quotes.json` + `alert.wav`，所以文档确实不进编译输入。
   - ✅ 推 main 之后 run #16（id `42059504934`）`android` 作业每步 `success`、annotations 只剩 GitHub 的 2 条 boilerplate；`dev-build-sha.txt` 变成 `d4c8d66…`（== 本地 main），四个 APK 字节数与 run #14 逐个相同而 sha256 全不同 —— 又一次印证 debug keystore 每轮现生成，见 REVIEW §16.6。
 
+- [x] 第十一轮（run #17 残缺 + 文档行号对账，2026-11-06）：用户只发了一张 Actions 截图（`android` 红、第 10 步 `更新公开预发布 dev-build` 10 秒失败、`HTTP 500 .../releases/assets/713954948`）。免登录 API 取证确认这次和 run #9 相反 —— **附件真的少了**：`dev-build` 只剩 4 个，`app-arm64-v8a-release.apk`（平板优先装那个）与 `app-x86_64-release.apk` 已被 `--clobber` 删掉又没传回来，幸存者的 `updated_at` 还停在 run #16 的 15:59，而正文首行已写 `2552bad`。机制与新 CI 逻辑见 REVIEW §十七 / 坑 L。
+  - CI 改动：`.github/workflows/build-apk.yml:105-142`（单条上传 → 最多 3 轮「上传 + 点名核对 6 个附件」）。本机验证三连：PyYAML `safe_load` 通过 → 抽出 `run` 落盘 `bash -n` 通过 → 桩 `gh` 跑四种情形，其中「第 1 轮只报 4 个件」精确复刻 run #17 并在第 2 轮恢复。
+  - ⚠️ **本机无法直接补齐残缺**：没有 `gh`、没有可调 Actions 的 token，`Rerun failed jobs` 这条路走不通；恢复只能是再推一次 main，让新 run 带着重试逻辑重发 6 个附件。这条改动**尚未推送**，等用户授权。
+  - 文档行号逐条对账（第十轮只校了数字，这轮校 `path:NNN`）：改掉 10 处失效引用 —— `clock_view.dart:253→319`、`flip_renderer.dart:37→flip_card_widget.dart:359`（`_FlipTransform` 这个类已不存在）、`:177→1451`、`:14→19`、`:56→164`、`:40→148`、`:399→1424`、`flip_card_widget.dart:149/223/272/205→172/245/283/228`、`settings_page.dart:47/51/183/52/144→51/55/244/55/143`、`build-apk.yml:48-53/65/106→55-58/70/119-124`、`clock_view.dart:154→169`。另外「卡片标签 `Flexible` + 省略号」早已不在 `settings_page.dart`，现址 `style_picker.dart:52`。
+  - 核对后**没改**的：`clock_providers.dart:78/96/97`、`app_providers.dart:139`、`enum_def.dart:13`、`style_picker.dart:217`、`flip_card_widget.dart:155`、`clock_view.dart:100/106/326/357/363/370`、`egg_display.dart:33/61`、`settings_page.dart:177-186/349-440/383-393`、`main.dart:15`、`build_hap.sh:31`、SDK 侧 `dialog.dart:268`、`gradle_utils.dart:237-239/261-264`、`flutter_cache.dart:539`。带轮次标签的历史引用（`git show 7abb6fd:...`、`app_widget_test.dart:384` 那个已删的 `.first`、`egg_display.dart:23` 的旧公式）保持原样，改了就是造假。
+
 - [x] 当前工作树（2026-11-05 第三轮改动，**已提交并推送**）：提交 `cdceae9`「feat: 翻页动画重做（8 种·绕中缝铰链）+ 沉浸式待机，鸿蒙工程入库」，`59 files changed, 2188 insertions(+), 275 deletions(-)`。
   - 提交前实测：`git status --short` = 17 `M` + 9 `??`；`ios/Runner/GeneratedPluginRegistrant.{h,m}` 这 2 个 CRLF 假差异在 `git add` 前用 `git checkout -- ios` 还原（依据：`git diff --stat --ignore-cr-at-eol -- ios` 零行 stat，只吐 warning），所以最终提交是 **15 个 M + 44 个新文件 = 59**，与 `git diff --cached --name-only | wc -l` 一致；暂存后 `git status --short | grep -vE "^[MA]  "` 为空，确认没漏也没多。
   - 入库前扫过密钥：对**将要 add 的 44 个文件**（不是整个目录，`ohos/entry/build/**` 的缓存不在内）`grep -niE "password|secret|token|BEGIN (RSA|OPENSSH)|api[_-]?key"`，只有 `assets/icon/*.png` 因二进制字节撞词命中，`ohos/build-profile.json5` 是 `"signingConfigs": []` 空数组，无凭据。⚠️ `tool/ohos_env.sh` 里有本机路径（含 Windows 用户名 `86132` 与盘符），是设计如此（当作「仓库内正本」），不是泄露。
@@ -340,7 +347,7 @@ await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
 模拟器实测（`k01`–`k11` 一串截图）：
 - 状态栏与手势条消失，数字占满整屏（`k03_after_gotit.png`）。
 - Android 首次进入会弹系统提示「Viewing full screen / To exit, swipe down from the top of your screen」，点掉之后不再出现（`k01`/`k02` 抓到）。
-- 应用自己的 chrome（齿轮 + 菜单）仍按 6 s 自动隐藏，**点屏幕任意处重新唤出**（`Listener.onPointerDown → _pokeChrome`，`clock_view.dart:154`），唤出后齿轮位置随 `SafeArea` 上移到真正的顶边（`k04`）。
+- 应用自己的 chrome（齿轮 + 菜单）仍按 6 s 自动隐藏，**点屏幕任意处重新唤出**（`Listener.onPointerDown → _pokeChrome`，`clock_view.dart:169`），唤出后齿轮位置随 `SafeArea` 上移到真正的顶边（`k04`）。
 - 设置页在沉浸式下正常打开、布局无异常（`k06`）；返回键仍能把路由弹回主屏（`k07`）。
 - 自定义倒计时弹窗端到端复测：打开时不弹键盘（`k09`）→ 点输入框弹键盘，弹窗滚动后输入框与「取消/开始」都可见（`k10`，`scrollable: true` 起作用，15/30/45/60 需要滚一下才看到）→ 输入 `25` 点「开始」真的起表（`k11`，`00:24:58`）。
 

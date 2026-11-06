@@ -102,13 +102,44 @@ jobs:
             gh release create "$TAG" --prerelease \
               --title "开发版安装包（随 main 自动更新）" --notes "$NOTES"
           fi
-          gh release upload "$TAG" --clobber \
-            "$APK_DIR"/app-arm64-v8a-release.apk \
-            "$APK_DIR"/app-armeabi-v7a-release.apk \
-            "$APK_DIR"/app-x86_64-release.apk \
-            "$APK_DIR"/app-release.apk \
-            apk-sha256.txt \
+          # --clobber 是「先删同名附件、再传新的」，删和传不是原子的；中途失败就会把已经删掉的那几个
+          # 留在空中。run #17 实测：arm64 与 x86_64 的删除已经成功、删 v7a（asset 713954948）时
+          # GitHub 回 HTTP 500，整步中断 → 发布页只剩 4 个附件，平板优先装的 arm64 直接 404。
+          # 所以：重试 + 传完逐个点名核对，缺就继续重试，三次仍不齐才把 run 判红。
+          ASSET_NAMES=(
+            app-arm64-v8a-release.apk
+            app-armeabi-v7a-release.apk
+            app-x86_64-release.apk
+            app-release.apk
+            apk-sha256.txt
             dev-build-sha.txt
+          )
+          for attempt in 1 2 3; do
+            missing=""
+            if gh release upload "$TAG" --clobber \
+                "$APK_DIR/app-arm64-v8a-release.apk" \
+                "$APK_DIR/app-armeabi-v7a-release.apk" \
+                "$APK_DIR/app-x86_64-release.apk" \
+                "$APK_DIR/app-release.apk" \
+                apk-sha256.txt dev-build-sha.txt; then
+              have=" $(gh release view "$TAG" --json assets --jq '[.assets[].name] | join(" ")') "
+              for want in "${ASSET_NAMES[@]}"; do
+                case "$have" in *" $want "*) ;; *) missing="$missing $want";; esac
+              done
+            else
+              missing=" (gh release upload 这一步本身失败)"
+            fi
+            if [ -z "$missing" ]; then
+              echo "dev-build 附件核对通过：$have"
+              break
+            fi
+            if [ "$attempt" = 3 ]; then
+              echo "::error::dev-build 重试 3 次仍缺附件：$missing"
+              exit 1
+            fi
+            echo "第 $attempt 次发布后还缺：$missing —— 20 秒后重试"
+            sleep 20
+          done
           # 这句只是把结果打印到日志，附件传完之后再失败也不该把整个 run 拖红。
           # run #9 就是挂在这里（发布本身成功），根因由 run #10 的 annotation 交出来：
           # `--json prerelease` 是错的字段名，gh 只认 isPrerelease。

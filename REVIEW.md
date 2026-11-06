@@ -23,7 +23,7 @@
 
 - 证据：`git show 7abb6fd:lib/flip_clock/clock_view.dart | grep -n '\[n'` → `205: if (clockState.workMode == ClockWorkMode.countdown) ...[n   const SizedBox(width: 10),`
 - 影响：整个 app 无法编译，「暂停/继续/停止」三个按钮所在的 `if` 列表写法被写坏（`...[n`）。
-- 处置：主屏控制区重写为 `_controls()` + `_chip()` 列表（`lib/flip_clock/clock_view.dart:253`）。
+- 处置：主屏控制区重写为 `_controls()` + `_chip()` 列表（`lib/flip_clock/clock_view.dart:319`、`:398`）。
 
 ### R2 · P0：`pubspec.yaml` 声明了不存在的资源
 
@@ -35,14 +35,14 @@
 
 - 证据：`git show 7abb6fd:lib/flip_clock/flip_renderer.dart` 的 `PageCurlRenderer` 在 `transitionBuilder` 里直接 `rotateY(1.57 * (1 - anim.value))`。`transitionBuilder` 只在建子节点时执行一次，不监听 `animation`，所以 `anim.value` 永远是入场瞬间的 0 → 角度停在 1.57rad。
 - 可观测结果：矩阵 `y` 基向量分量 `cos(π/2) = 6.12e-17`，即数字变成一条边，等于消失。
-- 处置：`_FlipTransform` 改为 `AnimatedBuilder` 监听动画（`lib/flip_clock/flip_renderer.dart:37`），5 种动画统一「value==1 回到平铺」的约定。
+- 处置：`_FlipTransform` 改为 `AnimatedBuilder` 监听动画（这个类后来重做成逐格架构，同一份约定现在落在 `lib/flip_clock/flip_card_widget.dart:359`），5 种动画统一「value==1 回到平铺」的约定。
 - 回归测试与反向验证：`test/flip_rendering_test.dart` 的「切换数字后仍会回到静止态」。把 `AnimatedBuilder` 还原成一次性读 `anim.value` 后，该用例报错 `Expected: a value greater than <0.9> / Actual: <6.123233995736766e-17>`，确认测试真能钉住这个 bug。
 
 ### R4 · P1：10 种数字风格实际画面上完全一样
 
 - 证据：`git show 7abb6fd:lib/core/constants.dart` 的 `styleFontMap` 把 10 个风格映射到 5 个字体 family；`git show 7abb6fd:pubspec.yaml` 里**没有 `fonts:` 段**，`assets/` 只有 quotes/audio。未打包的 family 会静默回退系统字体。
 - 影响：风格差异只剩 `fontFamily` 这一个维度，而它本身失效 → 用户切 10 次设置，画面一动不动。其余渲染参数（字号 120、`FontWeight.bold`）在所有渲染器里写死。
-- 处置：新增 `ClockLook` 外观表（字重 / 斜体 / 字距 / 字号倍率 / 描边宽度 / 底板不透明度 / 圆角 / 内边距 / 中缝 / 等宽数字 10 个维度），字体降级为其中一个可选维度（`lib/flip_clock/flip_renderer.dart:177` 起）。
+- 处置：新增 `ClockLook` 外观表（字重 / 斜体 / 字距 / 字号倍率 / 描边宽度 / 底板不透明度 / 圆角 / 内边距 / 中缝 / 等宽数字 10 个维度），字体降级为其中一个可选维度（`lib/flip_clock/flip_renderer.dart:1451` 起）。
 - 回归测试：「两两之间至少有一个可见维度不同」「镂空描边样式只描边不填充」。反向验证：把 `appearanceFor` 改成恒返回 `const ClockLook()` 后这两条同时变红。
 
 ### R5 · P1：倒计时用 `Timer.periodic` 自减，与真实时间脱钩
@@ -62,7 +62,7 @@
 
 - 证据：`git show 7abb6fd:lib/flip_clock/clock_view.dart:77-96` → `await _audioPlayer.play(...)` 在 `setState(egg)` 之前；隐藏用的是 `Future.delayed(...)`，没有 `Timer` 句柄，既不能取消也不在 `dispose` 里清理。
 - 影响：音频链路（平台通道 + 资源解码）慢或卡住时，视觉反馈跟着延迟；提前点掉彩蛋后，旧的 delayed 回调仍会在 5 秒后回来改状态。
-- 处置：彩蛋先上屏，再尽力播提示音（`AudioPlayer` 懒创建，失败静默降级）；隐藏改用可取消的 `Timer`（`lib/flip_clock/clock_view.dart:102`）。
+- 处置：彩蛋先上屏，再尽力播提示音（`AudioPlayer` 懒创建，失败静默降级）；隐藏改用可取消的 `Timer`（`lib/flip_clock/clock_view.dart:91`，`dispose` 里 `:67-68` 一并取消）。
 - 未自动化覆盖，见第五节边界说明。
 
 ### R8 · P2：`keepScreenOn` 关掉后不生效，要重启
@@ -185,11 +185,11 @@ classic 的两版令牌没有任何底板装饰（`hasPlateDecor == false`），
 ### 9.1 「生硬」的根因是架构，不是调参
 
 - 旧实现把整串 `HH:MM:SS` 交给一个 `AnimatedSwitcher`，`transitionBuilder` 给新旧两个 child **各自一份 0→1 的独立动画**，旋转轴在牌子几何中心。这种 API 形状**表达不了真实翻牌**：真实的中缝翻页是「上叶绕中缝倒下 → 翻到中途下叶接住继续 → 落平」，两半必须在同一个进度上协同，而 AnimatedSwitcher 只给每个 child 一条自己的曲线。所以无论怎么调 duration/curve 都还是「整块牌子绕中间转一下」，这就是生硬感的来源。
-- 渲染层 API 改成 `FlipRenderer.transition(newChild:, oldChild:, t:)`（`lib/flip_clock/flip_renderer.dart:14`），并且**静止判定收进基类**：`t >= 1` 直接返回 `newChild`，只有 `< 1` 才进子类的 `flip()`。子类因此**不可能忘记回到平铺**——R3（书页卷曲把数字永久冻在侧立态）那一类缺陷的复发路径被结构性堵掉。
-- **逐格翻**：`_FlipBoard` 把字符串拆成一格一个 `_FlipCell`（`lib/flip_clock/flip_card_widget.dart:149`、`:223`），只有 `char` 真的变化的那格起自己的 `AnimationController`（`:272`），`:` 和没变的位保持静止；格宽下限用 `TextPainter('0')` 量出来的宽度锁住（`:205`），否则走秒时整串会左右抖。
-- **铰链与光影**：上叶用 `Align(heightFactor: 0.5, topCenter)` 裁出来后绕自己的下缘转（`alignment: bottomCenter`），下叶镜像绕上缘（`_hingedLeaf`，`lib/flip_clock/flip_renderer.dart:56`），四层 Stack 按「新牌在下、旧牌在上」叠，中缝不断裂；翻起的角度按 `|sin θ| × 0.62` 加深那面的渐变阴影（`:40`），靠缝受光、自由端进暗。
+- 渲染层 API 改成 `FlipRenderer.transition(newChild:, oldChild:, t:)`（`lib/flip_clock/flip_renderer.dart:19`），并且**静止判定收进基类**：`t >= 1` 直接返回 `newChild`，只有 `< 1` 才进子类的 `flip()`。子类因此**不可能忘记回到平铺**——R3（书页卷曲把数字永久冻在侧立态）那一类缺陷的复发路径被结构性堵掉。
+- **逐格翻**：`_FlipBoard` 把字符串拆成一格一个 `_FlipCell`（`lib/flip_clock/flip_card_widget.dart:172`、`:245`），只有 `char` 真的变化的那格起自己的 `AnimationController`（`:283`），`:` 和没变的位保持静止；格宽下限用 `TextPainter('0')` 量出来的宽度锁住（`:228`），否则走秒时整串会左右抖。
+- **铰链与光影**：上叶用 `Align(heightFactor: 0.5, topCenter)` 裁出来后绕自己的下缘转（`alignment: bottomCenter`），下叶镜像绕上缘（`_hingedLeaf`，`lib/flip_clock/flip_renderer.dart:164`），四层 Stack 按「新牌在下、旧牌在上」叠，中缝不断裂；翻起的角度按 `|sin θ| × 0.62` 加深那面的渐变阴影（`:148`），靠缝受光、自由端进暗。
 - **缓动分层**：0→0.42 用 `Curves.easeInCubic` 加速下落，0.42→1 用 `Curves.easeOutBack` 收尾（落下时有极小过冲＝回弹）；分段碎裂、滑动、滚筒也各自配了 `bounceOut`/`easeOutBack`，不再是线性。
-- **动画从 5 种加到 8 种**：新增「滚筒走字」「落体回弹」「混合轮换」。混合轮换（`FlipAnimStyle.autoMix`，轮换表 `flipMixCycle` 见 `lib/flip_clock/flip_renderer.dart:399`）每次翻页换一种，把「不要局限一种」直接做成用户能选的一项，而不是替用户决定。
+- **动画从 5 种加到 8 种**：新增「滚筒走字」「落体回弹」「混合轮换」。混合轮换（`FlipAnimStyle.autoMix`，轮换表 `flipMixCycle` 见 `lib/flip_clock/flip_renderer.dart:1424`）每次翻页换一种，把「不要局限一种」直接做成用户能选的一项，而不是替用户决定。
 
 ### 9.2 沉浸式待机：一处定义，按钮与入口一起退场
 
@@ -197,7 +197,7 @@ classic 的两版令牌没有任何底板装饰（`hasPlateDecor == false`），
 
 ### 9.3 设置页分栏（那条没具体说的「布局不合理」）
 
-用户没指明是哪一处，按实测定位到 `LayoutBuilder` 只看宽度：`constraints.maxWidth >= 760` 在横屏手机（Pixel 7 逻辑 914×411）也成立，于是走左右两栏，而预览高度写死 210、选项区只剩 145 高，一整屏滚不出几行。改成宽 + 高双条件判定（`lib/settings/settings_page.dart:47`），窄版按 42% 高度收放预览并夹在 140–240（`:51`）；选项 `Wrap` 补 `spacing/runSpacing`（`:183`），卡片标签 `Flexible` + 省略号，不再挤出越界。
+用户没指明是哪一处，按实测定位到 `LayoutBuilder` 只看宽度：`constraints.maxWidth >= 760` 在横屏手机（Pixel 7 逻辑 914×411）也成立，于是走左右两栏，而预览高度写死 210、选项区只剩 145 高，一整屏滚不出几行。改成宽 + 高双条件判定（`lib/settings/settings_page.dart:51`），窄版按 42% 高度收放预览并夹在 140–240（`:55`）；选项 `Wrap` 补 `spacing/runSpacing`（`:244`，芯片自带 4 像素外边距，这里补 2 凑成横竖一致的 10），卡片标签 `Flexible` + 省略号挪到了芯片本身（`lib/settings/style_picker.dart:52`），不再挤出越界。
 
 ### 9.4 「为什么这么大」——用空壳 Demo 对照实测
 
@@ -247,7 +247,7 @@ emulator -avd trace_pixel7 -no-window -no-snapshot-save -no-boot-anim -no-audio 
 | `13_scroll_up.png`、`burst_09.png` | ①动画不再生硬 | 经典翻牌的中缝铰链中间态：上半页带阴影向下折、下半页新数字渐显，缝隙连续不脱开（`burst_09` 抓到 `05:15:06` 末位正在落页） |
 | `33_flip_styles.png` | ①8 种效果 | 设置页「翻页动画样式（8 种）」8 个 chip 全在（经典机场翻牌✓ / 书页卷曲翻页 / 滑动翻页 / 分段碎裂翻 / 渐变溶解翻 / 滚筒走字 / 落体回弹 / 混合轮换），预览条正停在翻页中间态 |
 | `mix_1..8.png` | ①混合轮换真的换 | 连拍 8 帧（22,306–27,923 字节，逐帧大小不同 = 每帧画面真的在变）；`mix_5.png` 里 `00:20:38` 末位是两段字形交叠的旋转中间态，与经典翻牌的铰链形态不同 |
-| `11_settings.png`、`12_scroll1.png`、`13_scroll_up.png` | ③设置布局 | 914×411 横屏走的是窄版：预览条压在上方、选项列表整宽铺在下面，翻页不再「一整屏滚不出几行」，也没有溢出红条。按 `settings_page.dart:52` 算：`maxHeight = 411.4 - 56 = 355.4`，预览 `355.4 × 0.42 = 149.3` 逻辑像素（旧版写死 210，选项只剩 145 高） |
+| `11_settings.png`、`12_scroll1.png`、`13_scroll_up.png` | ③设置布局 | 914×411 横屏走的是窄版：预览条压在上方、选项列表整宽铺在下面，翻页不再「一整屏滚不出几行」，也没有溢出红条。按 `settings_page.dart:55` 算：`maxHeight = 411.4 - 56 = 355.4`，预览 `355.4 × 0.42 = 149.3` 逻辑像素（旧版写死 210，选项只剩 145 高） |
 
 视验的边界要讲清楚：`swiftshader_indirect` 是 CPU 软渲染，**帧率与流畅度不代表真机**，所以这里只能确认「形态对不对（铰链、逐格、隐藏、布局）」，不能确认「60fps 下顺不顺眼」；后者需要在真机上跑，§9.7 的帧率缺口依旧没被这张表填上。
 
@@ -487,7 +487,7 @@ isPrerelease name publishedAt tagName tarballUrl targetCommitish uploadUrl url z
 | `sky` 日出日落 | 背景层 + 细进度条 | 只有背景层 |
 
 - 「选了组件就不再画细条」不是这条需求带的，是 §10.3 就定下的「同一份信息不画两遍」；这轮补的是**用户主动关**这一支：sky 不顶细条，但用户点了关，关必须算数。
-- 关掉之后倒计时画面只剩数字本身，连「还在走」的凭据都没有——这正是用户要的形态（那行开关的副标题「倒计时时数字下方那一根；关掉画面只剩数字」就是把这句话写给用户看的，`settings_page.dart:144`），不是遗漏。
+- 关掉之后倒计时画面只剩数字本身，连「还在走」的凭据都没有——这正是用户要的形态（那行开关的副标题「倒计时时数字下方那一根；关掉画面只剩数字」就是把这句话写给用户看的，`settings_page.dart:143`），不是遗漏。
 
 ### 13.3 设置页：从一整面芯片墙到七张分区卡
 
@@ -554,7 +554,7 @@ isPrerelease name publishedAt tagName tarballUrl targetCommitish uploadUrl url z
 
 - `lib/core/update_check.dart`（新，88 行）：`buildSha` / `latestBuildUrl` / `devBuildReleaseUrl` 三个常量、`UpdateCheckStatus` 四档、`fetchLatestBuildSha`（带 10 秒超时，`HttpClient` 默认跟随 302，UA 见下面「实测补记」）、`checkForUpdate`。
 - `lib/settings/settings_page.dart:177-186`：「关于」卡里加了一行当前构建短号，下面挂 `const UpdateCheckSection()`（`:349-440`）。两个 `OutlinedButton` 用 `Wrap` 摆，复制按钮只在「有新版 / 本地构建」两种结果下出现（`canCopy` 排除 `failed` 与 `upToDate`，`_message` 的四句中文见 `:383-393`）。
-- `.github/workflows/build-apk.yml:48-53 / :65 / :106`：两条 `flutter build apk` 都加 `--dart-define=BUILD_SHA=$GITHUB_SHA`，校验和那一步顺手 `printf '%s\n' "$GITHUB_SHA" > dev-build-sha.txt`，`gh release upload` 的清单里点名带上它，Release 正文补了一句两份 txt 各干什么。
+- `.github/workflows/build-apk.yml:55-58 / :70 / :119-124`：两条 `flutter build apk` 都加 `--dart-define=BUILD_SHA=$GITHUB_SHA`，校验和那一步顺手 `printf '%s\n' "$GITHUB_SHA" > dev-build-sha.txt`，`gh release upload` 的清单里点名带上它，Release 正文补了一句两份 txt 各干什么。
 - `tool/build_hap.sh:31`：本机出鸿蒙包时注入 `git rev-parse HEAD`，拿不到就注空串（App 侧走「比不了」分支）。
 
 两条缝是为测试留的，不是为了以后扩展：`latestShaFetcherProvider`（设置页只 `ref.read` 它，所以 UI 用例可以塞假抓取）和 `checkForUpdate(fetch, {String? localSha})`（`buildSha` 是编译期 `String.fromEnvironment`，测试进程里恒为空，不传参数就只能测「比不了」那一档）。
@@ -717,3 +717,40 @@ grep -ac 52e4bf38fdaaa3b64daaaf7bdfcd219a541be980  .../kernel_blob.bin         �
 - 本机新出的 18,245,379 与云端这两轮的 18,237,326 差 8,053 字节，**不能互相核对**，差在 keystore 与那台 Runner 的环境。
 - 历史数字保留不动的有三处，都带轮次标签：REVIEW §9.6 的「本轮数字」、§9.8 截图装的那个 19,343,534 的 x86_64 包、HANDOFF 公开分发行里 run #10/#11 的取证。把它们改成今天的数就是造假。
 - 仍未验证的：真机点「检查更新」、鸿蒙真机运行（签名待用户）、动画观感。
+
+## 十七、第十轮追加：run #17 把 dev-build 传成「残缺」，`--clobber` 不是原子的
+
+用户在 Actions 页面看到 `android` 作业红叉（截图里第 10 步 `更新公开预发布 dev-build` 10 秒失败，日志两行：`HTTP 500 (https://api.github.com/repos/mjkyleo/timenote/releases/assets/713954948)` + `Error: Process completed with exit code 1`）。这次和 run #9 那种「红叉但包已发出」正相反 —— **包真的少了**。
+
+### 17.1 现场取证（免登录 API）
+
+| 项 | 实测 |
+| --- | --- |
+| run #17 | `head_sha 2552bad`，`conclusion: failure`，前 9 步全 `success`（构建 APK 5m18s），只有发布步红 |
+| `dev-build` 附件 | **只剩 4 个**：`app-armeabi-v7a-release.apk`、`app-release.apk`、`apk-sha256.txt`、`dev-build-sha.txt`；`app-arm64-v8a-release.apk` 与 `app-x86_64-release.apk` **不在列表里**（`browser_download_url` 逐条列过） |
+| 幸存附件的 `updated_at` | 全是 `15:59:3x` = run #16 那一轮；release 本身 `16:12:21` = run #17 改过正文 |
+| `dev-build-sha.txt` | 内容仍是 `d4c8d66…`（run #16），而正文首行已被 `gh release edit` 写成「最新提交：`2552bad`」→ **说明文字和附件不是同一轮** |
+| asset id `713954948` | 正是幸存下来的 `app-armeabi-v7a-release.apk`，也就是「删到它时 500」那一个 |
+
+机制是从三条实测反推的（gh 内部的删除/上传顺序没有文档，下面是唯一能对得上现场的读法）：① `arm64` 与 `x86_64` 不在列表 = 它们的 DELETE 成功了；② 报错行点名的 asset `713954948` 正是 v7a = 失败的是**删除**而不是上传；③ 四个幸存附件的 `updated_at` 全停在 run #16 = 这一轮一次上传都没轮到。所以 `gh release upload --clobber` 是把同名附件**先删干净、再逐个上传**，这两半之间没有原子性；v7a 那次删除回 500 让 `set -e` 当场退出，已删的两件就永远缺着了。v7a 自己反倒因为删除失败保住了 run #16 的旧字节。平板优先装的那个包正好是被删掉的两件之一。
+
+### 17.2 修法：重试 + 点名核对，而不是把发布当一次性动作
+
+`.github/workflows/build-apk.yml:105-142` 起把单条 `gh release upload` 换成最多 3 次的循环：传完立刻 `gh release view --json assets` 拿实际名字集合，逐个核对 6 个应有附件；缺就 20 秒后整轮重来（`--clobber` 幂等，多传一次不会留重复），三次仍不齐才 `::error::` + `exit 1`。这样「红叉」和「残缺」被解耦：红叉必然意味着残缺，而瞬时 500 大概率在第一二次重试就被吃掉。
+
+本机用桩 `gh` 跑过这段循环（把 workflow 里那段 `run` 用 PyYAML 抽出来，注入一个假 `gh` 函数）四种情形：
+
+| 桩的行为 | 循环表现 |
+| --- | --- |
+| 上传成功 + 附件齐全 | 第 1 轮通过，打印「dev-build 附件核对通过：…」，不重试 |
+| 第 1 轮只报 4 个（复刻 run #17） | 精确点出缺 `app-arm64-v8a-release.apk app-x86_64-release.apk`，20 秒后重试，第 2 轮通过 |
+| `gh release upload` 每次都返回非 0 | 3 轮各打一行「第 N 次发布后还缺」，第 3 轮出 `::error::dev-build 重试 3 次仍缺附件` 并以 1 退出 |
+| 上传成功但始终缺件 | 同上（走的是同一条 `exit 1` 分支） |
+
+YAML 侧照例本机验过：`py` + PyYAML `safe_load` 通过，抽出这段 `run` 落盘 `bash -n` 通过（这个坑 §15.2 记过，块标量里不能出现列 0 的行）。
+
+### 17.3 恢复动作与边界
+
+- **修好残缺只能再跑一次发布**：本机没有 `gh`、也没有可以调 Actions 的 token，重跑 failed jobs 这条路走不通；可行的就是再推一次 main，让新 run 带着重试逻辑把 6 个附件补齐。所以这条修复必须由一次推送落地，顺带也就把 `dev-build` 恢复到与 `main` 同一轮。
+- 之前 §15/§16 记的「红叉但包已发出」（run #9）和这次的「红叉且包少了」（run #17）是两种相反情形，判读方式一样：**看 `releases/tags/dev-build` 的 asset 列表，不看红叉**。README 的分发表已按这个补一句。
+- 未验证：GitHub 侧那个 500 的成因（无鉴权拿不到服务端日志），只能确定它是瞬时的 —— 同一条命令在 run #14/#16 都成功过。

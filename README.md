@@ -247,6 +247,10 @@ git tag -a v1.0.0 -m "..." && git push --follow-tags   # 另发一条正式版 R
 
 **推文档提交也会跑（run #16，`d4c8d66`）**：`android` 作业每一步 `success`，`dev-build-sha.txt` 跟着搬到这一轮的 commit。四个 APK 的字节数与 run #14 逐个相同（`52e4bf3`/`d4c8d66` 只动文档，`pubspec` 的 `assets:` 里没有文档），sha256 却全不同（arm64 `69145927…` → `5ef34ce3…`）—— 上面「debug keystore 每轮现生成」这条又多一个数据点。
 
+**run #17（`2552bad`）：红叉而且包真的少了**，和 run #9 那种「红叉但包已发出」正好相反。发布步删掉 arm64 与 x86_64 之后，删 v7a 时 GitHub 回 `HTTP 500`（asset `713954948`），`set -e` 当场退出 —— `dev-build` 只剩 4 个附件，平板优先装的 `app-arm64-v8a-release.apk` 直接 404，而幸存那四个的 `updated_at` 还停在 run #16（正文首行却已被 `gh release edit` 写成 `2552bad`）。根因是 `gh release upload --clobber` **不是原子的**：同名附件先删干净、再逐个上传，中间失败就等于把已删的那几个丢在空中（这个删除/上传顺序由现场反推，详见 [REVIEW.md](./REVIEW.md) §17.1）。修法是把单条上传换成最多 3 次的「上传 → `gh release view --json assets` 点名核对 6 个附件 → 缺就 20 秒后整轮重来」，三次仍不齐才判红（`.github/workflows/build-apk.yml:105-142`，本机桩 `gh` 复刻过 run #17 的缺件状态并在第 2 轮恢复，取证与验证见 REVIEW §十七）。
+
+判读规则只有一条，两种红叉都适用：**看 `releases/tags/dev-build` 的 asset 列表齐不齐，不看 run 的红叉**；顺带对一下 `dev-build-sha.txt` 的内容是否等于 `main` 的 HEAD —— run #17 就是正文已被 `gh release edit` 改成 `2552bad`、而 `dev-build-sha.txt` 还停在 `d4c8d66`，说明文字和附件能来自不同轮。
+
 ## 🖼 界面风格（11 套整屏令牌）
 
 参考 [luckymaomi/ui-styles](https://luckymaomi.github.io/ui/styles/) 的 10 套风格页移植而来，令牌集中在 `lib/theme/ui_style.dart`（`uiStyleSpecs`，每套 `(亮, 暗)` 两版）。
