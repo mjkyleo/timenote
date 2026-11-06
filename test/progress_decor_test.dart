@@ -376,6 +376,10 @@ void main() {
     });
 
     testWidgets('进度层的颜色取自当前界面令牌，不是写死的白绿', (tester) async {
+      // 出厂底色是「跟随系统」，测试平台给的是亮；这条比的是黑底 vs 白底，先钉成黑
+      await container.read(appSettingsNotifierProvider.notifier).update(container
+          .read(appSettingsNotifierProvider)
+          .copyWith(themeBase: ThemeBase.dark));
       await setDecor(tester, ProgressDecor.ring);
       await startCountdown(tester);
       final classicDark = bandPainter(tester);

@@ -48,6 +48,16 @@ class TodoListNotifier extends Notifier<List<TodoItem>> {
     await StorageService.saveTodoList(items);
   }
 
+  /// 撤销删除：放回原来的位置，列表顺序是用户看得见的
+  Future<void> restoreTodo(TodoItem item, int index) async {
+    if (state.any((e) => e.id == item.id)) return;
+    final items = [...state];
+    final at = index.clamp(0, items.length);
+    items.insert(at, item);
+    state = items;
+    await StorageService.saveTodoList(items);
+  }
+
   /// 清掉已完成的条目，未完成项保持原顺序
   Future<void> clearCompleted() async {
     if (!state.any((e) => e.isCompleted)) return;

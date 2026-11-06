@@ -83,6 +83,70 @@ class UiTokens {
 
   /// 底板圆角：令牌优先，否则交回数字样式
   double radiusOr(double fallback) => plateRadius ?? fallback;
+
+  /// 标签/小字用的可读前景：[muted] 在亮色风格里常常只有 2.6–4.4:1，
+  /// 撑不起卡片标题这一层；这里按 WCAG 兜到 4.5:1，色相尽量不动。
+  Color get labelInk => _ensureInk(muted);
+
+  /// 强调色能当文字用的那一版：皮肤给的 accent 常常是装饰色
+  /// （哥特暗 2.07:1、超现实亮 2.36:1），直接写进按钮标签就是读不见。
+  Color get accentInk => _ensureInk(accent);
+
+  Color _ensureInk(Color ink) {
+    final key = '${ink.toARGB32()}|$hashCode';
+    final hit = _inkCache[key];
+    if (hit != null) return hit;
+    // 文字既可能压在底色上，也可能压在面板/卡面上，取更吃亏的那个
+    var out = ensureContrast(ink, bg);
+    final s = surface;
+    if (s != null) out = ensureContrast(out, compositeOver(s, bg));
+    _inkCache[key] = out;
+    return out;
+  }
+}
+
+/// labelInk/accentInk 的记忆化表：全应用只有 22 套令牌，一次算完常驻，
+/// 不必每帧重算 50 次明度插值。
+final Map<String, Color> _inkCache = {};
+
+/// WCAG 对比度：[ink] 允许带透明度，先合成到 [back] 上再算。
+/// [back] 必须是真正画在屏幕上的那一层不透明色（面板色要先用
+/// [compositeOver] 合到底色上），不然算的是「不存在的背景」。
+double contrastRatio(Color ink, Color back) {
+  final la = compositeOver(ink, back).computeLuminance();
+  final lb = back.computeLuminance();
+  final hi = la > lb ? la : lb;
+  final lo = la > lb ? lb : la;
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+/// 把 [ink] 推到与 [back] 至少 4.5:1：先合成透明度，不够再朝「亮底压黑、暗底提白」
+/// 的方向逐步调明度，色相与饱和度尽量留住。返回不透明色，
+/// 这样同一个标签压在底色和卡面上都是同一读数。
+Color ensureContrast(Color ink, Color back, {double min = 4.5}) {
+  final base = compositeOver(ink, back);
+  if (contrastRatio(base, back) >= min) return base;
+  final anchor = back.computeLuminance() > 0.5
+      ? const Color(0xFF000000)
+      : const Color(0xFFFFFFFF);
+  for (var t = 0.02; t <= 1.0001; t += 0.02) {
+    final candidate = Color.lerp(base, anchor, t)!;
+    if (contrastRatio(candidate, back) >= min) return candidate;
+  }
+  return anchor;
+}
+
+/// 把带透明度的 [fg] 压到不透明 [bg] 上，得到屏幕上真正的那一层颜色
+Color compositeOver(Color fg, Color bg) {
+  if (fg.a >= 1.0) return fg;
+  // r/g/b 是 0–1 的 double（新版 Color API），不能当 0–255 取整
+  final a = fg.a;
+  return Color.from(
+    alpha: 1.0,
+    red: a * fg.r + (1 - a) * bg.r,
+    green: a * fg.g + (1 - a) * bg.g,
+    blue: a * fg.b + (1 - a) * bg.b,
+  );
 }
 
 /// 无装饰：与引入本层之前的渲染路径完全一致
@@ -702,7 +766,7 @@ class _OrnamentPainter extends CustomPainter {
 TextStyle uiLabelStyle(BuildContext context, UiTokens tokens, {double? size}) {
   final base = Theme.of(context).textTheme.titleMedium ?? const TextStyle();
   return base.copyWith(
-    color: tokens.muted,
+    color: tokens.labelInk,
     fontSize: size ?? base.fontSize,
     letterSpacing: tokens.labelTracking,
     fontFamilyFallback: tokens.labelFamilies,

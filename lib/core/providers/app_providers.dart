@@ -16,6 +16,9 @@ class AppSettingsState {
   final bool keepScreenOn;
   final bool soundEnable;
 
+  /// 控件层是否 6 秒后自动隐藏（待机屏的沉浸式签名）；关掉就常驻
+  final bool autoHideChrome;
+
   AppSettingsState({
     required this.themeBase,
     required this.uiStyle,
@@ -28,6 +31,7 @@ class AppSettingsState {
     required this.showProgressBar,
     required this.keepScreenOn,
     required this.soundEnable,
+    this.autoHideChrome = true,
   });
 
   AppSettingsState copyWith({
@@ -42,6 +46,7 @@ class AppSettingsState {
     bool? showProgressBar,
     bool? keepScreenOn,
     bool? soundEnable,
+    bool? autoHideChrome,
   }) {
     return AppSettingsState(
       themeBase: themeBase ?? this.themeBase,
@@ -55,6 +60,7 @@ class AppSettingsState {
       showProgressBar: showProgressBar ?? this.showProgressBar,
       keepScreenOn: keepScreenOn ?? this.keepScreenOn,
       soundEnable: soundEnable ?? this.soundEnable,
+      autoHideChrome: autoHideChrome ?? this.autoHideChrome,
     );
   }
 }
@@ -68,7 +74,7 @@ class AppSettingsNotifier extends Notifier<AppSettingsState> {
   @override
   AppSettingsState build() {
     final themeRaw =
-        StorageService.getSetting('themeBase', ThemeBase.dark.name);
+        StorageService.getSetting('themeBase', ThemeBase.system.name);
     final uiRaw = StorageService.getSetting('uiStyle', UiStyle.classic.name);
     final flipRaw = StorageService.getSetting(
         'flipAnimStyle', FlipAnimStyle.tickerRoll.name);
@@ -85,11 +91,12 @@ class AppSettingsNotifier extends Notifier<AppSettingsState> {
     final barRaw = StorageService.getSetting('showProgressBar', true);
     final keepOn = StorageService.getSetting('keepScreenOn', true);
     final soundOn = StorageService.getSetting('soundEnable', true);
+    final autoHide = StorageService.getSetting('autoHideChrome', true);
 
     return AppSettingsState(
       themeBase: ThemeBase.values.firstWhere(
         (e) => e.name == themeRaw,
-        orElse: () => ThemeBase.dark,
+        orElse: () => ThemeBase.system,
       ),
       uiStyle: UiStyle.values.firstWhere(
         (e) => e.name == uiRaw,
@@ -122,6 +129,7 @@ class AppSettingsNotifier extends Notifier<AppSettingsState> {
       showProgressBar: barRaw,
       keepScreenOn: keepOn,
       soundEnable: soundOn,
+      autoHideChrome: autoHide,
     );
   }
 
@@ -139,6 +147,7 @@ class AppSettingsNotifier extends Notifier<AppSettingsState> {
       'showProgressBar': newState.showProgressBar,
       'keepScreenOn': newState.keepScreenOn,
       'soundEnable': newState.soundEnable,
+      'autoHideChrome': newState.autoHideChrome,
     });
   }
 }

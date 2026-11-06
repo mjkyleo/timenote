@@ -751,6 +751,71 @@ YAML 侧照例本机验过：`py` + PyYAML `safe_load` 通过，抽出这段 `ru
 
 ### 17.3 恢复动作与边界
 
-- **修好残缺只能再跑一次发布**：本机没有 `gh`、也没有可以调 Actions 的 token，重跑 failed jobs 这条路走不通；可行的就是再推一次 main，让新 run 带着重试逻辑把 6 个附件补齐。所以这条修复必须由一次推送落地，顺带也就把 `dev-build` 恢复到与 `main` 同一轮。
+- **修好残缺只能再跑一次发布（已执行）**：本机没有 `gh`、也没有可以调 Actions 的 token，`Rerun failed jobs` 这条路走不通，可行的就是再推一次 main 让新 run 带着重试逻辑重发 —— 于是这条修复由推送 `b771a10` 落地。**run #18（id `42153387930`，event=push）`conclusion=success`**，`android` 作业没有任何一步非 success（`ios`/`release` 按设计 skipped），annotations 只剩 GitHub 自己那 2 条 boilerplate（Node 20 弃用 + ubuntu-latest 迁移预告），我们那句 `::error::` 没出现。`dev-build` 回到 6 个附件：四个 APK 的 `updated_at` 是 `03:00:50–51`、两个 txt 是 `03:00:49–50`，全在同一轮里；`apk-sha256.txt` 四行与 API 在每个 asset 上给的 `digest` **逐字相同**（arm64 `af4b74dfb615…`），`dev-build-sha.txt` 取回来是 `b771a10749447c0ba356ed0965658307cee017cc`，与本地 `git rev-parse main`、`git ls-remote` 三方一致，正文首行也写「对应提交：`b771a10`」—— 17.1 那个「文字与附件来自不同轮」的错配就此消除。字节数仍是 18,237,326 / 15,656,684 / 19,728,789 / 52,546,377，与 run #14/#16 逐个相同（这轮改的是 CI 脚本与文档，都不进编译输入），sha256 全不同 —— 「debug keystore 每轮现生成」的第 4 个数据点。⚠️ 边界：**分不清第 1 轮就通过还是重试后才齐**（`run` 日志正文要 admin，实测 403），免登录只能看到「6 件齐全 + 无 `::error::`」这一层结论。
 - 之前 §15/§16 记的「红叉但包已发出」（run #9）和这次的「红叉且包少了」（run #17）是两种相反情形，判读方式一样：**看 `releases/tags/dev-build` 的 asset 列表，不看红叉**。README 的分发表已按这个补一句。
 - 未验证：GitHub 侧那个 500 的成因（无鉴权拿不到服务端日志），只能确定它是瞬时的 —— 同一条命令在 run #14/#16 都成功过。
+
+## 十八、第十一轮：按 Apple HIG 把「展现形式」改成一个 App
+
+需求原话是「不要很粗糙，我们这个 app 没有什么导航什么的，但是不要什么登录什么的，app 的核心宗旨不要变」。所以这一轮不动功能清单：不加路由、不加账号、不加权限，只把「成品感」缺的那几层补上 —— 文字能不能读、系统无障碍开关有没有回答、点得到点不到、按完有没有回响、错了能不能撤。依据用的是本机装好的 `apple-design` skill（`~/.qoder/skills/apple-design/references/hig/`，123 页 HIG 原文 + `cross-platform.md` 的 Flutter 对照表），本轮读了 accessibility / typography / color / layout / dark-mode / going-full-screen / motion / playing-haptics / writing / buttons / sheets / settings 十二份。
+
+### 18.1 取证方式：先算数，再开口
+
+粗糙与否不能靠形容词。三条口径：
+
+- **对比度按 WCAG 相对亮度算**，先把带 alpha 的文字色合成到「底色」和「面板合成色」两种真实背板上，取更吃亏的那个。这套算法最后直接进了生产码：`lib/theme/ui_style.dart:140 compositeOver`（半透明压回不透明）、`:115 contrastRatio`、`:126 ensureContrast`（不够 4.5:1 就朝「亮底压黑、暗底提白」以 2% 一档调明度，色相留住）。
+- **点击尺寸在 800×600 逻辑像素的 widget 测试里量矩形**（临时探针跑完就删，不留在库里）。
+- **HIG 的每一条都要落到具体那页那一节**，落不到就明说是我的判断，不是 Apple 说的。
+
+量出来的底牌（11 套风格 × 亮暗两版 = 22 套令牌）：
+
+| 用色 | 亮色版不达 4.5:1 | 暗色版不达 4.5:1 | 最差几名 |
+| --- | --- | --- | --- |
+| `muted`（卡片小标题、分组标签、副标题、空状态文案都吃它） | **7/11** | 0/11 | 复古印刷 2.63 / 视觉小说 3.20 / 自然有机 3.43 / 软胶拟物 3.82 |
+| `accent` 当文字用（「检查更新」那颗描边按钮、选中态芯片） | **8/11** | 6/11 | 哥特洛丽塔暗 2.07 / 自然有机亮 2.24 / 超现实亮 2.36 / 便当格与暗色分层 3.52 |
+| `accent` 把 alpha 拉满后仍不达 | **8/11** | 6/11 | —— 透明度救不了明度问题，只能改色 |
+
+`fg` 对 `bg` 在 22 套里全部达标（最低复古印刷亮 5.79），所以「数字本体读得见」这件事一直是好的；塌的是次要文字那一层。
+
+### 18.2 一处入口修全局：派生文字色 `labelInk` / `accentInk`
+
+不逐条去改 22 套令牌里的几十个字面量（改完下一套皮肤照样会塌），而是在令牌层加两个派生 getter，把兜底变成结构性的：`UiTokens.labelInk`（从 `muted` 推）与 `accentInk`（从 `accent` 推），见 [lib/theme/ui_style.dart:89](file:///D:/Phase3/Projects/timenote/lib/theme/ui_style.dart#L89)。两者都同时对「底色」和「面板合成色」取更吃亏的那一版；结果进全局 `_inkCache`（22 套一次算完常驻，不逐帧重算 50 次明度插值）。
+
+接入点（`grep` 实测）：`uiLabelStyle` 内部（`:769`，也就是所有卡片标题 / 分组小标题 / 抽屉标题）、设置页 5 处 12pt 副文案（`settings_page.dart:257/278/289/353/453`）、抽屉空状态（`todo_drawer.dart:116`）、主屏强调色 4 处（`clock_view.dart:204/314/333/426`）、设置页强调色竖条与「检查更新」按钮（`settings_page.dart:229/418`）。
+
+顺带把设置页残留的 11pt 小字统一提到 12pt（`grep -c "fontSize: 11"` 在 `settings_page.dart`、`lib/todo/*`、`clock_view.dart` 现在是 0 命中）—— Apple 给移动端文字的最小是 11pt，但那是「最小」不是「该用」。
+
+钉住它的是 `test/ui_style_test.dart` 新增那条「文字用色全矩阵守住 WCAG 4.5:1（labelInk / accentInk）」：11 风格 × 亮暗 × {底色, 面板合成色} × {fg, labelInk, accentInk}，任一跌破 4.5 直接红，reason 里带是哪一套哪一版。
+
+### 18.3 系统无障碍开关必须有人回答
+
+| 系统开关 | Apple 的出处 | 这一轮的答复 |
+| --- | --- | --- |
+| 减弱动态效果 | `accessibility.md › Cognitive`、`motion.md › Make motion optional` | 翻页是本 App 唯一自动、反复的动画（每分钟自己走一次）。`lib/flip_clock/flip_card_widget.dart:33` 读 `MediaQuery.maybeDisableAnimationsOf`，开着就整体换成 **150ms crossfade**，不做位移与翻转。改在共用组件里，主屏和设置页预览一起生效 |
+| 定时藏控件（App 自己造的「时间盒」） | `accessibility.md › Cognitive`（别给操作设时间压力） | 新增设置项「控件自动隐藏」（默认开着，`app_providers.dart:94/132/150`）。关掉后 `clock_view.dart:94` 直接早退不重新起表，并在 `:182` 的 `ref.listen` 里把已经淡出的那一屏**当场叫回**，不用重启、不用先点一下屏幕 |
+| 深色外观 | `dark-mode.md` | `ThemeBase` 从两档变三档：`system`（新默认）/ `light` / `dark`（`enum_def.dart:11`），`resolveThemeBase` 在 `:26`，`main.dart:62` 把它翻成 `ThemeMode.system`。**老用户不受影响**：箱里存着 `'dark'`/`'light'` 就照旧解析（`app_providers.dart:76` 的默认值只在 key 缺失时才落到 `system`）。沉浸屏保留手动档是 `dark-mode.md` 认可的例外——黑环境里被系统切亮真的刺眼 |
+| 读屏 / 无障碍标签 | `accessibility.md › Vision` | 抽屉入口 `Icons.menu` → `Icons.checklist`（`clock_view.dart:241`）：「汉堡」不表达「这是一份清单」。整块翻页板对外仍只报一个完整时间（`ExcludeSemantics` + `Semantics(label:)`），纯图标按钮靠 `tooltip` 拿到 SDK 给的语义标签 |
+
+点按尺寸是量的不是猜的：主屏 6 颗芯片实测 `Rect` 高 48pt（528→576），设置页风格芯片把内边距 `vertical` 从 8 提到 12 后实测 46–48pt（`style_picker.dart:33`）；`clock_view.dart:436` 的芯片 padding 走 16×8。对照 Apple 移动端一档 44×44pt、最小 28×28pt。
+
+### 18.4 按完要有回响，错了要能撤
+
+- **触感 6 处**（`playing-haptics.md`：反馈要落在界面里，且与提示音是两条独立通道）：勾选 `todo_item.dart:23`、删除 `:41` 走 `lightImpact`；主屏芯片 `clock_view.dart:448`、设置页风格芯片 `style_picker.dart:28`、空状态「添加待办」`todo_drawer.dart:29` 走 `selectionClick`；倒计时归零 `clock_view.dart:133` 走 `heavyImpact`，**排在 `soundEnable` 判断之前**——静音的人也得知道表走完了。
+- **删除可撤销**（`undo-and-redo.md`：可逆的日常动作不该弹窗，该给 undo）：删单条待办出 SnackBar「已删除「xxx」＋撤销」，`restoreTodo(item, index)`（`todo_providers.dart:52`）按原下标插回，`index.clamp` 过、重复 id 直接跳过。
+- **空状态给得出下一步**（`writing.md`：空屏要指出下一步动作）：抽屉空态从一句话变成「一句话 + 一颗『添加待办』」，那颗按钮做的是把焦点交给输入框（`todo_drawer.dart:28-31`），键盘跟着起来。
+- **去硬编码色**：完成态文字原来写死 `Colors.grey`、删除图标原来写死 `Colors.red`。这两个色不在任何一套令牌的色族里——在暖纸白那一族（编辑部、复古印刷、自然有机）上就是一块灰斑和一条生硬原色线；现在完成态走 `labelInk`、删除走 `accentInk`（这条是我的判断，不是 HIG 的硬指标）。
+
+### 18.5 顺手抓出来的一个真缺陷：`late` 字段的初始化时机
+
+写这条测试之前，`_FlipCellState` 里是 `late String _shown = widget.char`。Dart 的 `late` 带初始化表达式的字段**在第一次「读」时才执行初始化**，而第一次读发生在 `didUpdateWidget`——那时 `widget` 已经是新数字了，于是旧牌被画成新数字。探针实测：首次 `12:34 → 12:35` 在 60ms 处树里的文本序列是 `[1, 2, :, 3, 5, 5]`（新数字自己翻自己，旧数字一次都没出现），第二次翻页之后才正常。修法是在 `initState` 里显式赋值（`flip_card_widget.dart:311`），同一处把 `_flipStyle` 也从惰性初始化改成显式赋值。修完探针输出 `[1, 2, :, 3, 4, 5]`。这条被「没开减弱动效时照常翻满 400ms：200ms 处旧数字仍在场」那条对照测试钉住——它的存在意义就是防止下面那条减弱动效的测试变成恒真。
+
+### 18.6 测试与边界
+
+`flutter analyze` No issues found，`flutter test` **209 例全绿**（本轮 202 → 209，净增 7 条：对比度全矩阵、减弱动效两组、控件自动隐藏两组、底色跟随系统、出厂默认底色）。因为默认底色从 `dark` 变成 `system`，另外两条老测试改法如下，没有放宽断言：`ui_style_test.dart` 那条先看风格 bg 的，改成显式 `pick(classic, dark)` 起步；`progress_decor_test.dart` 那条比黑白底前景色的，先显式钉成 `dark` 再切 `light`。
+
+明确没做到的：
+
+- 对比度是**算**出来的，没在真机屏幕上取色复核；毛玻璃那套的面板 alpha 参考页本来就没给原值（`provenance` 里写着「模糊像素值未给」），合成背板用的是它给的 `surface`。
+- 触感与减弱动效要人手和眼睛判：请在 dev-build 直链上装包，开系统「减弱动态效果」再翻一次，并摸一下勾选/删除/归零三处震动轻重是否分得开。
+- 鸿蒙侧：`ThemeMode.system` 依赖平台亮度回传。读了 `flutter_ohos` 的 embedder 源码，**通道是通的**（`engine/src/flutter/shell/platform/ohos/flutter_embedding/flutter/src/main/ets`）：冷启动 `view/FlutterView.ets:999`/`:1104` → `sendSettings()`（`:1114`）→ `embedding/ohos/Settings.ets:40` 的 `.setPlatformBrightness(this.getThemeMode(mediaQuery))`，暗色由 `Settings.ets:50-60` 的 `matchMediaSync('(dark-mode: true)')` 判；系统深色中途切换由 `FlutterAbility.ets:519-526` 和 `FlutterEntry.ets:106-114` 按 `config.colorMode` 重发；消息键在 `systemchannels/SettingsChannel.ets:29`。同一处还发 `setTextScaleFactor(config.fontSizeScale)`，所以系统字号缩放也是有信号的。**但这是读源码，不是运行时取证**——未签名 HAP 装不上真机，等你在 DevEco 签完再开/关一次系统深色确认底色跟着切。
+- 放大字号：彩蛋那条早就把 `textScaler` 算进测量，但设置页这 5 处 12pt 文案在最大字号下没跑过全矩阵溢出回归（现有的是 800×600 冒烟 + 横屏 914×411 那条）。

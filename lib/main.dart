@@ -32,36 +32,48 @@ class TimeNoteApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final isDark = ref.watch(
-        appSettingsNotifierProvider.select((s) => s.themeBase == ThemeBase.dark));
+    final choice = ref.watch(
+        appSettingsNotifierProvider.select((s) => s.themeBase));
     final uiStyle =
         ref.watch(appSettingsNotifierProvider.select((s) => s.uiStyle));
-    final tokens = uiTokensFor(uiStyle, isDark);
-    // classic 沿用引入本层之前的种子色，保证 Material 组件观感一字不变
-    final seed = uiStyle == UiStyle.classic
-        ? const Color(0xFF46586B)
-        : tokens.accent;
 
-    ThemeData theme(Brightness brightness) => ThemeData(
-          useMaterial3: true,
-          brightness: brightness,
-          // 底色交给令牌；Material 组件（开关、输入框、按钮）跟随同一套强调色
-          scaffoldBackgroundColor: tokens.bg,
-          colorScheme: ColorScheme.fromSeed(seedColor: seed, brightness: brightness),
-        );
+    // classic 沿用引入本层之前的种子色，保证 Material 组件观感一字不变
+    ThemeData theme(Brightness brightness) {
+      final isDark = brightness == Brightness.dark;
+      final tokens = uiTokensFor(uiStyle, isDark);
+      final seed =
+          uiStyle == UiStyle.classic ? const Color(0xFF46586B) : tokens.accent;
+      return ThemeData(
+        useMaterial3: true,
+        brightness: brightness,
+        // 底色交给令牌；Material 组件（开关、输入框、按钮）跟随同一套强调色
+        scaffoldBackgroundColor: tokens.bg,
+        colorScheme:
+            ColorScheme.fromSeed(seedColor: seed, brightness: brightness),
+      );
+    }
 
     return MaterialApp(
       title: '时笺 TimeNote',
       debugShowCheckedModeBanner: false,
       theme: theme(Brightness.light),
       darkTheme: theme(Brightness.dark),
-      themeMode: isDark ? ThemeMode.dark : ThemeMode.light,
-      // builder 包住 Navigator，于是主屏 / 设置页 / 抽屉 / 弹窗共用同一份令牌
-      builder: (context, child) => UiScope(
-        style: uiStyle,
-        tokens: tokens,
-        child: child ?? const SizedBox.shrink(),
-      ),
+      themeMode: switch (choice) {
+        ThemeBase.system => ThemeMode.system,
+        ThemeBase.light => ThemeMode.light,
+        ThemeBase.dark => ThemeMode.dark,
+      },
+      // builder 包住 Navigator，于是主屏 / 设置页 / 抽屉 / 弹窗共用同一份令牌；
+      // 亮度取 Material 已经解析好的那一档，跟随系统时自动跟着翻转
+      builder: (context, child) {
+        final tokens = uiTokensFor(
+            uiStyle, Theme.of(context).brightness == Brightness.dark);
+        return UiScope(
+          style: uiStyle,
+          tokens: tokens,
+          child: child ?? const SizedBox.shrink(),
+        );
+      },
       home: const ClockView(),
     );
   }

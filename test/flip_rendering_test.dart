@@ -212,6 +212,50 @@ void main() {
     });
   });
 
+  group('系统「减弱动态效果」', () {
+    Widget clock(String text) => FlipCardWidget(
+          content: text,
+          animDur: const Duration(milliseconds: 400),
+          animStyle: FlipAnimStyle.tickerRoll,
+          visualStyle: ClockVisualStyle.retroMechanical,
+          themeBase: ThemeBase.dark,
+        );
+
+    Future<void> pumpClock(WidgetTester tester, String text,
+        {bool reduce = false}) async {
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: MediaQuery(
+            data: MediaQueryData(disableAnimations: reduce),
+            child: SizedBox(width: 600, height: 300, child: clock(text)),
+          ),
+        ),
+      ));
+    }
+
+    testWidgets('没开减弱动效时照常翻满 400ms：200ms 处旧数字仍在场', (tester) async {
+      await pumpClock(tester, '12:34');
+      await tester.pumpAndSettle();
+      await pumpClock(tester, '12:35');
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(find.text('4'), findsOneWidget,
+          reason: '默认档必须真的还在翻页，否则下面那条守不住回归');
+      await tester.pumpAndSettle();
+      expect(find.text('4'), findsNothing);
+    });
+
+    testWidgets('开着减弱动效时只淡 150ms，200ms 处已经收干净', (tester) async {
+      await pumpClock(tester, '12:34', reduce: true);
+      await tester.pumpAndSettle();
+      await pumpClock(tester, '12:35', reduce: true);
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(find.text('5'), findsOneWidget);
+      expect(find.text('4'), findsNothing,
+          reason: '减弱动效下 150ms 就该落位，不许还挂着旧数字继续位移');
+      expect(tester.takeException(), isNull);
+    });
+  });
+
   group('混合轮换', () {
     testWidgets('连续翻页确实换效果，而不是永远同一种', (tester) async {
       Widget clock(String text) => FlipCardWidget(

@@ -27,6 +27,13 @@ class FlipCardWidget extends StatelessWidget {
   Widget build(BuildContext context) {
     final look = appearanceFor(visualStyle);
     final isDark = themeBase == ThemeBase.dark;
+    // 系统「减弱动态效果」：翻页是本 App 唯一自动、反复的动画（每分钟自己走一次），
+    // Apple 要求这种情况换成不位移的淡入，而不是继续播
+    // （accessibility.md › Cognitive、motion.md › Make motion optional）
+    final reduceMotion = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+    final motion = reduceMotion
+        ? const (FlipAnimStyle.crossfade, Duration(milliseconds: 150))
+        : (animStyle, animDur);
     // 没有 UiScope（单独 pump 本组件做测试）时退回本组件自己的黑白底，
     // 而不是按 Theme.brightness 猜，否则会跟传入的 themeBase 打架
     final tokens =
@@ -65,8 +72,8 @@ class FlipCardWidget extends StatelessWidget {
                         : Colors.black.withValues(alpha: 0.22),
                     child: _FlipBoard(
                       content: content,
-                      animDur: animDur,
-                      animStyle: animStyle,
+                      animDur: motion.$2,
+                      animStyle: motion.$1,
                       style: style,
                     ),
                   ),
@@ -287,9 +294,9 @@ class _FlipCellState extends State<_FlipCell>
   );
 
   /// 上一次翻完停在哪个字符：旧牌按它画，中途连续变化也不会串位
-  late String _shown = widget.char;
+  late String _shown;
   Widget? _outgoing;
-  late FlipAnimStyle _flipStyle = widget.pick();
+  late FlipAnimStyle _flipStyle;
 
   /// 这一格的起跑偏移（占本次时长的比例），只有级联一类会用到
   double _delay = 0;
@@ -297,6 +304,12 @@ class _FlipCellState extends State<_FlipCell>
   @override
   void initState() {
     super.initState();
+    // 必须在 initState 里赋值，不能写成 `late String _shown = widget.char`：
+    // late 字段的初始化表达式要到第一次「读」时才执行，而第一次读发生在
+    // didUpdateWidget，那时 widget 已经是新数字了，旧牌会画成新数字，
+    // 第一次翻页就变成「新数字自己翻自己」
+    _shown = widget.char;
+    _flipStyle = widget.pick();
     _controller.addStatusListener((status) {
       // 收尾就把旧牌摘掉：留着的话下一次翻页会把两帧前的字符当成旧牌
       if (status == AnimationStatus.completed && _outgoing != null) {

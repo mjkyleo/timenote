@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../core/providers/app_providers.dart';
 import '../core/providers/todo_providers.dart';
-import '../settings/enum_def.dart';
 import '../theme/ui_style.dart';
 import 'todo_item.dart';
 
@@ -16,11 +15,19 @@ class TodoDrawer extends ConsumerStatefulWidget {
 
 class _TodoDrawerState extends ConsumerState<TodoDrawer> {
   final TextEditingController _ctrl = TextEditingController();
+  final FocusNode _inputFocus = FocusNode();
 
   @override
   void dispose() {
     _ctrl.dispose();
+    _inputFocus.dispose();
     super.dispose();
+  }
+
+  /// 空状态那颗按钮：把焦点交给输入框，键盘跟着起来，用户直接打字就行
+  void _focusInput() {
+    HapticFeedback.selectionClick();
+    _inputFocus.requestFocus();
   }
 
   void _addTodo() {
@@ -36,10 +43,9 @@ class _TodoDrawerState extends ConsumerState<TodoDrawer> {
     final notifier = ref.read(todoListNotifierProvider.notifier);
     final doneCount = list.where((e) => e.isCompleted).length;
     final theme = Theme.of(context);
-    final themeBase = ref.watch(
-        appSettingsNotifierProvider.select((s) => s.themeBase));
-    final tokens = UiScope.maybeOf(context) ??
-        UiTokens.classic(themeBase == ThemeBase.dark);
+    // 令牌由 MaterialApp 的 builder 注入，这里不再自己从设置里猜黑白
+    // （选「跟随系统」时 themeBase 只是意图，不是结果）
+    final tokens = UiScope.of(context);
 
     return Drawer(
       width: 360,
@@ -75,6 +81,7 @@ class _TodoDrawerState extends ConsumerState<TodoDrawer> {
                   Expanded(
                     child: TextField(
                       controller: _ctrl,
+                      focusNode: _inputFocus,
                       maxLength: TodoListNotifier.maxTitleLength,
                       textInputAction: TextInputAction.done,
                       decoration: const InputDecoration(
@@ -98,10 +105,24 @@ class _TodoDrawerState extends ConsumerState<TodoDrawer> {
               Expanded(
                 child: list.isEmpty
                     ? Center(
-                        child: Text(
-                          '暂无待办，添加一条吧',
-                          style: theme.textTheme.bodyMedium
-                              ?.copyWith(color: theme.hintColor),
+                        // 空状态给得出下一步：一句话 + 一颗能按的按钮，
+                        // 而不是一句「添加一条吧」让人自己找输入框（writing.md）
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              '暂无待办，添加一条吧',
+                              style: theme.textTheme.bodyMedium
+                                  ?.copyWith(color: tokens.labelInk),
+                            ),
+                            const SizedBox(height: 12),
+                            // 只写文字不配图：上面输入行已经有一颗加号，
+                            // 同一个屏幕上两颗一样的加号会让人分不清按哪个
+                            FilledButton.tonal(
+                              onPressed: _focusInput,
+                              child: const Text('添加待办'),
+                            ),
+                          ],
                         ),
                       )
                     : ListView.separated(

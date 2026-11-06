@@ -1,8 +1,32 @@
 // 时笺 TimeNote 全局枚举定义
 library;
 
-/// 底色模式：黑 / 白
-enum ThemeBase { light, dark }
+import 'dart:ui' show Brightness;
+
+/// 底色模式：跟随系统 / 黑 / 白
+///
+/// Apple 不鼓励 App 自备外观开关（dark-mode.md），但待机钟属于「让 UI 退到画面之后」
+/// 的沉浸场景，同一页给了常驻暗档的例外。所以三档都在：默认跟随系统，
+/// 想钉死黑白的人仍然钉得死。
+enum ThemeBase { system, light, dark }
+
+String themeBaseName(ThemeBase b) {
+  switch (b) {
+    case ThemeBase.system:
+      return '跟随系统';
+    case ThemeBase.light:
+      return '亮色（白）';
+    case ThemeBase.dark:
+      return '暗色（黑）';
+  }
+}
+
+/// 设置里存的是「用户选的那一档」，可能是跟随系统；渲染层要的是这一刻到底黑不黑。
+/// 用 [platform]（Material 已解析过的亮度）收口，避免每处再判一遍枚举。
+ThemeBase resolveThemeBase(ThemeBase choice, Brightness platform) => choice ==
+        ThemeBase.system
+    ? (platform == Brightness.dark ? ThemeBase.dark : ThemeBase.light)
+    : choice;
 
 /// 翻页动画样式（24 种 + 混合轮换）
 ///

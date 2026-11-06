@@ -86,8 +86,15 @@ class _ClockViewState extends ConsumerState<ClockView> {
     if (!_chromeVisible) setState(() => _chromeVisible = true);
   }
 
+  /// 定时藏控件是待机屏的签名，但「暂停/停止」是倒计时唯一的出口，
+  /// 给它设时间盒对需要更多时间的人不友好（accessibility.md › Cognitive），
+  /// 所以这一条必须可以整体关掉；关掉时立刻把已经淡出的控件叫回来。
   void _scheduleChromeHide() {
     _chromeTimer?.cancel();
+    if (!ref.read(appSettingsNotifierProvider).autoHideChrome) {
+      if (mounted && !_chromeVisible) setState(() => _chromeVisible = true);
+      return;
+    }
     _chromeTimer = Timer(_chromeHideDelay, () {
       if (mounted && _chromeVisible) setState(() => _chromeVisible = false);
     });
@@ -121,6 +128,9 @@ class _ClockViewState extends ConsumerState<ClockView> {
       ref.read(clockNotifierProvider.notifier).startCountdown(lastTotal);
     }
     // stayZero：什么都不做，屏幕留着 00:00:00
+    // 触感与提示音是两条独立通道：静音或听不见的人靠这一次震动知道表走完了
+    // （accessibility.md › Hearing「Use haptics in addition to audio cues」）
+    HapticFeedback.heavyImpact();
     if (!setting.soundEnable) return;
     try {
       await (_alarm ??= AudioPlayer()).play(AssetSource('audio/alert.wav'));
@@ -162,8 +172,15 @@ class _ClockViewState extends ConsumerState<ClockView> {
     final clockState = ref.watch(clockNotifierProvider);
     final notifier = ref.read(clockNotifierProvider.notifier);
     final tokens = UiScope.maybeOf(context) ??
-        UiTokens.classic(appSetting.themeBase == ThemeBase.dark);
+        UiTokens.classic(Theme.of(context).brightness == Brightness.dark);
+    // 「跟随系统」时把档位落到这一刻的黑/白，再交给渲染层
+    final themeBase =
+        resolveThemeBase(appSetting.themeBase, Theme.of(context).brightness);
     final fg = tokens.fg;
+
+    // 设置页改完「控件自动隐藏」得当场生效，不必等下次触摸
+    ref.listen(appSettingsNotifierProvider.select((s) => s.autoHideChrome),
+        (prev, next) => _scheduleChromeHide());
 
     return Listener(
       onPointerDown: (_) => _pokeChrome(),
@@ -184,7 +201,7 @@ class _ClockViewState extends ConsumerState<ClockView> {
                     decor: ProgressDecor.sky,
                     progress: clockState.progress,
                     fg: fg,
-                    accent: tokens.accentSelection ? tokens.accent : tokens.fg,
+                    accent: tokens.accentSelection ? tokens.accentInk : tokens.fg,
                     bg: tokens.bg,
                   ),
                 ),
@@ -194,7 +211,7 @@ class _ClockViewState extends ConsumerState<ClockView> {
                     child: GestureDetector(
                       behavior: HitTestBehavior.opaque,
                       onTap: _showEgg ? _hideEgg : null,
-                      child: _mainArea(appSetting, clockState),
+                      child: _mainArea(appSetting, clockState, themeBase),
                     ),
                   ),
                   // 进度条是「还在计时」的唯一凭据，沉浸式状态下也留着；
@@ -219,7 +236,9 @@ class _ClockViewState extends ConsumerState<ClockView> {
                         ),
                         const SizedBox(width: 8),
                         IconButton(
-                          icon: const Icon(Icons.menu, size: 28),
+                          // Icons.menu 表意「导航抽屉」，这里开的是待办清单，
+                          // 用清单自己的图标（icons.md › 图标与含义一致）
+                          icon: const Icon(Icons.checklist, size: 28),
                           color: fg,
                           tooltip: '待办清单',
                           onPressed: () =>
@@ -240,9 +259,10 @@ class _ClockViewState extends ConsumerState<ClockView> {
   Widget _mainArea(
     AppSettingsState appSetting,
     ClockState clockState,
+    ThemeBase themeBase,
   ) {
     if (_showEgg) {
-      return EggDisplay(text: _eggText, themeBase: appSetting.themeBase);
+      return EggDisplay(text: _eggText, themeBase: themeBase);
     }
     final clock = clockState.workMode == ClockWorkMode.realtime
         ? ClockTimeDisplay(
@@ -250,7 +270,7 @@ class _ClockViewState extends ConsumerState<ClockView> {
             animStyle: appSetting.flipAnimStyle,
             visualStyle: appSetting.clockVisualStyle,
             speed: appSetting.animSpeed,
-            themeBase: appSetting.themeBase,
+            themeBase: themeBase,
             plateFrame: appSetting.plateFrame,
           )
         : CountdownDisplay(
@@ -258,7 +278,7 @@ class _ClockViewState extends ConsumerState<ClockView> {
             animStyle: appSetting.flipAnimStyle,
             visualStyle: appSetting.clockVisualStyle,
             speed: appSetting.animSpeed,
-            themeBase: appSetting.themeBase,
+            themeBase: themeBase,
             plateFrame: appSetting.plateFrame,
           );
     return Padding(
@@ -291,7 +311,7 @@ class _ClockViewState extends ConsumerState<ClockView> {
           decor: decor,
           progress: clockState.progress,
           fg: tokens.fg,
-          accent: tokens.accentSelection ? tokens.accent : tokens.fg,
+          accent: tokens.accentSelection ? tokens.accentInk : tokens.fg,
           bg: tokens.bg,
         ),
       ),
@@ -310,7 +330,7 @@ class _ClockViewState extends ConsumerState<ClockView> {
           value: clockState.progress,
           minHeight: 5,
           backgroundColor: track,
-          color: tokens.accentSelection ? tokens.accent : tokens.fg,
+          color: tokens.accentSelection ? tokens.accentInk : tokens.fg,
         ),
       ),
     );
@@ -403,13 +423,17 @@ class _ClockViewState extends ConsumerState<ClockView> {
     IconData? icon,
   }) {
     final fg = tokens.fg;
-    final ink = tokens.accentSelection ? tokens.accent : fg;
+    final ink = tokens.accentSelection ? tokens.accentInk : fg;
     final border = selected ? ink : fg.withValues(alpha: 0.32);
     final shape = tokens.chipRadius >= 900
         ? const StadiumBorder()
         : RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(tokens.chipRadius));
     return ActionChip(
+      // 芯片默认只有 32 高（SDK chip.dart 的 _kChipHeight），低于
+      // buttons.md 要求的 44x44 命中区；用内衬把它撑到 44+，
+      // 视觉上的胶囊形状不变。
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       label: Text(uiLabelText(tokens, label)),
       labelStyle: TextStyle(
           color: fg,
@@ -420,7 +444,10 @@ class _ClockViewState extends ConsumerState<ClockView> {
           selected ? ink.withValues(alpha: 0.16) : Colors.transparent,
       side: BorderSide(color: border, width: tokens.chipStrokeWidth),
       shape: shape,
-      onPressed: onTap,
+      onPressed: () {
+        HapticFeedback.selectionClick();
+        onTap();
+      },
     );
   }
 }

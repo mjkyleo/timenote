@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../core/constants.dart';
 import '../flip_clock/flip_renderer.dart';
 import '../theme/ui_style.dart';
@@ -22,10 +23,14 @@ Widget buildStyleItem(
   return Padding(
     padding: const EdgeInsets.all(4),
     child: InkWell(
-      onTap: onTap,
+      // 命中区撑到 44 以上（原来到 38 就停了），触感与点击同时给反馈
+      onTap: () {
+        HapticFeedback.selectionClick();
+        onTap();
+      },
       borderRadius: BorderRadius.circular(10),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
           border: Border.all(
             color: selected ? theme.colorScheme.primary : Colors.grey.shade400,

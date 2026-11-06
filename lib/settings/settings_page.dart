@@ -22,7 +22,9 @@ class SettingsPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final appState = ref.watch(appSettingsNotifierProvider);
     final notifier = ref.read(appSettingsNotifierProvider.notifier);
-    final isDark = appState.themeBase == ThemeBase.dark;
+    // 这一页渲染出来是黑是白，看 Material 解析后的亮度：
+    // 用户选「跟随系统」时 appState.themeBase 只是意图，不是结果
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final tokens = UiScope.maybeOf(context) ?? UiTokens.classic(isDark);
     final labelColor = tokens.fg;
 
@@ -99,16 +101,15 @@ class SettingsPage extends ConsumerWidget {
         _card(context, tokens, '外观', [
           _group(tokens, '底色', [
             for (final base in ThemeBase.values)
-              item(
-                  base == ThemeBase.light ? '亮色（白）' : '暗色（黑）',
-                  appState.themeBase == base,
+              item(themeBaseName(base), appState.themeBase == base,
                   () => update(appState.copyWith(themeBase: base))),
           ]),
           _group(tokens, '界面风格（${UiStyle.values.length} 套整屏令牌）', [
             for (final u in UiStyle.values)
               item(uiStyleName(u), appState.uiStyle == u,
                   () => update(appState.copyWith(uiStyle: u)),
-                  swatch: uiTokensFor(u, appState.themeBase == ThemeBase.dark)),
+                  swatch: uiTokensFor(
+                      u, Theme.of(context).brightness == Brightness.dark)),
           ]),
           _group(tokens, '数字外框（底板描边）', [
             for (final f in PlateFrame.values)
@@ -173,6 +174,13 @@ class SettingsPage extends ConsumerWidget {
               (val) => update(appState.copyWith(keepScreenOn: val))),
           _switch(tokens, '提示音', '倒计时结束时播放，与结束行为互不影响', appState.soundEnable,
               (val) => update(appState.copyWith(soundEnable: val))),
+          // 暂停/停止是倒计时唯一的出口，定时藏掉它对慢的人不友好，所以给关掉的权利
+          _switch(
+              tokens,
+              '控件自动隐藏',
+              '无操作 6 秒后只剩数字，点屏幕任意处唤回；关掉则常驻',
+              appState.autoHideChrome,
+              (val) => update(appState.copyWith(autoHideChrome: val))),
         ]),
         _card(context, tokens, '关于', [
           Text(
@@ -217,7 +225,9 @@ class SettingsPage extends ConsumerWidget {
                     Container(
                       width: 3,
                       height: 14,
-                      color: tokens.accentSelection ? tokens.accent : tokens.fg,
+                      color: tokens.accentSelection
+                          ? tokens.accentInk
+                          : tokens.fg,
                     ),
                     const SizedBox(width: 8),
                     Text(uiLabelText(tokens, title),
@@ -238,8 +248,13 @@ class SettingsPage extends ConsumerWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(label,
+                // 11px 正好压在 iPadOS 最小字号下限上，再叠 muted 的低对比就读不出了；
+                // 抬到 12 并走 labelInk（令牌层已按 WCAG 兜到 4.5:1）
                 style: TextStyle(
-                    fontSize: 11, letterSpacing: 1, color: tokens.muted)),
+                    fontSize: 12,
+                    letterSpacing: 1,
+                    fontWeight: FontWeight.w500,
+                    color: tokens.labelInk)),
             // 芯片自带 4 像素外边距，这里补齐到横竖都是 10 的统一间隙
             Wrap(
                 spacing: 2,
@@ -259,7 +274,8 @@ class SettingsPage extends ConsumerWidget {
           contentPadding: EdgeInsets.zero,
           title: Text(title, style: TextStyle(color: tokens.fg)),
           subtitle: Text(subtitle,
-              style: TextStyle(fontSize: 11, height: 1.4, color: tokens.muted)),
+              style: TextStyle(
+                  fontSize: 12, height: 1.4, color: tokens.labelInk)),
           value: value,
           onChanged: (val) => onChanged(val),
         ),
@@ -270,7 +286,7 @@ class SettingsPage extends ConsumerWidget {
   Widget _hint(UiTokens tokens, String text) => Padding(
         padding: const EdgeInsets.only(top: 8, left: 4),
         child: Text(text,
-            style: TextStyle(fontSize: 11, height: 1.4, color: tokens.muted)),
+            style: TextStyle(fontSize: 12, height: 1.4, color: tokens.labelInk)),
       );
 }
 
@@ -307,7 +323,7 @@ class _StylePreviewState extends State<StylePreview> {
   @override
   Widget build(BuildContext context) {
     final s = widget.state;
-    final isDark = s.themeBase == ThemeBase.dark;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final tokens = UiScope.maybeOf(context) ?? UiTokens.classic(isDark);
     return Container(
       decoration: BoxDecoration(
@@ -326,14 +342,15 @@ class _StylePreviewState extends State<StylePreview> {
                 animDur: AppConstants.animDurationOf(s.animSpeed),
                 animStyle: s.flipAnimStyle,
                 visualStyle: s.clockVisualStyle,
-                themeBase: s.themeBase,
+                themeBase:
+                    resolveThemeBase(s.themeBase, Theme.of(context).brightness),
                 plateFrame: s.plateFrame,
               ),
             ),
           ),
           Text(
             '${visualStyleName(s.clockVisualStyle)} · ${flipAnimName(s.flipAnimStyle)}',
-            style: TextStyle(fontSize: 12, color: tokens.muted),
+            style: TextStyle(fontSize: 12, color: tokens.labelInk),
           ),
           const SizedBox(height: 10),
         ],
@@ -397,7 +414,8 @@ class _UpdateCheckSectionState extends ConsumerState<UpdateCheckSection> {
   @override
   Widget build(BuildContext context) {
     final tokens = UiScope.maybeOf(context) ?? UiTokens.classic(false);
-    final accent = tokens.accentSelection ? tokens.accent : tokens.fg;
+    final accent =
+        tokens.accentSelection ? tokens.accentInk : tokens.fg;
     final style = OutlinedButton.styleFrom(
       foregroundColor: accent,
       side: BorderSide(color: accent.withValues(alpha: 0.6)),
@@ -432,7 +450,7 @@ class _UpdateCheckSectionState extends ConsumerState<UpdateCheckSection> {
             padding: const EdgeInsets.only(top: 8),
             child: Text(_message(_result),
                 style: TextStyle(
-                    fontSize: 12, height: 1.6, color: tokens.muted)),
+                    fontSize: 12, height: 1.6, color: tokens.labelInk)),
           ),
         ],
       ),

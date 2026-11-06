@@ -89,7 +89,7 @@ void main() {
   }
 
   Future<void> openDrawer(WidgetTester tester) async {
-    await tester.tap(find.byIcon(Icons.menu));
+    await tester.tap(find.byIcon(Icons.checklist));
     await pumpFrames(tester, 8, const Duration(milliseconds: 60));
   }
 
@@ -130,7 +130,7 @@ void main() {
     testWidgets('右上角有设置与待办入口', (tester) async {
       await pumpApp(tester);
       expect(find.byIcon(Icons.settings), findsOneWidget);
-      expect(find.byIcon(Icons.menu), findsOneWidget);
+      expect(find.byIcon(Icons.checklist), findsOneWidget);
     });
 
     testWidgets('无操作 6 秒后控件不可点，点一下唤回后仍能进设置', (tester) async {
@@ -147,6 +147,39 @@ void main() {
       expect(find.byType(SettingsPage), findsNothing,
           reason: '控件隐藏时不应响应设置按钮');
 
+      await openSettings(tester);
+      expect(find.byType(SettingsPage), findsOneWidget);
+    });
+
+    testWidgets('关掉「控件自动隐藏」：已淡出的控件立刻叫回，且不再有 6 秒时间盒',
+        (tester) async {
+      await pumpApp(tester);
+      await tester.pump(const Duration(seconds: 7));
+      await pumpFrames(tester, 4, const Duration(milliseconds: 100));
+
+      await appSettings()
+          .update(settings().copyWith(autoHideChrome: false));
+      await pumpFrames(tester, 4, const Duration(milliseconds: 100));
+
+      // 再等一个 6 秒：这一档关掉后不该重新藏起来
+      await tester.pump(const Duration(seconds: 7));
+      await pumpFrames(tester, 4, const Duration(milliseconds: 100));
+
+      await openSettings(tester);
+      expect(find.byType(SettingsPage), findsOneWidget,
+          reason: '关掉自动隐藏要把淡出的控件叫回来，且不许再次藏起');
+      expect(StorageService.getSetting('autoHideChrome', true), isFalse);
+
+      await tester.scrollUntilVisible(find.text('控件自动隐藏'), 120);
+      expect(find.text('控件自动隐藏'), findsOneWidget,
+          reason: '这一档必须在设置页里找得到');
+    });
+
+    testWidgets('「控件自动隐藏」的关法落盘：重启后控件仍然常驻', (tester) async {
+      await StorageService.writeSettings({'autoHideChrome': false});
+      await pumpApp(tester);
+      await tester.pump(const Duration(seconds: 7));
+      await pumpFrames(tester, 4, const Duration(milliseconds: 100));
       await openSettings(tester);
       expect(find.byType(SettingsPage), findsOneWidget);
     });

@@ -44,6 +44,34 @@ void main() {
       }
     });
 
+    test('文字用色全矩阵守住 WCAG 4.5:1（labelInk / accentInk）', () {
+      // 皮肤给的 muted / accent 是装饰色，实测有 7 套亮色的 muted 不到 4.5:1
+      // （复古印刷 2.63、视觉小说 3.20…），9 套的 accent 连满 alpha 都不够。
+      // 标签与文字按钮一律走派生色，这里把底线钉住。
+      for (final entry in uiStyleSpecs.entries) {
+        for (final tokens in [entry.value.$1, entry.value.$2]) {
+          final tag =
+              '${entry.key}/${tokens == entry.value.$1 ? '亮' : '暗'}';
+          // 面板色是半透明的，得先压到底色上才是屏幕上真正的那一层背景
+          final backs = {
+            tokens.bg,
+            if (tokens.surface != null)
+              compositeOver(tokens.surface!, tokens.bg),
+          };
+          for (final back in backs) {
+            expect(contrastRatio(tokens.fg, back), greaterThanOrEqualTo(4.5),
+                reason: '$tag fg 读不见');
+            expect(contrastRatio(tokens.labelInk, back),
+                greaterThanOrEqualTo(4.5),
+                reason: '$tag labelInk 未达 4.5:1');
+            expect(contrastRatio(tokens.accentInk, back),
+                greaterThanOrEqualTo(4.5),
+                reason: '$tag accentInk 未达 4.5:1');
+          }
+        }
+      }
+    });
+
     test('classic 不加任何底板装饰，其余风格至少加一种', () {
       for (final isDark in [false, true]) {
         expect(uiTokensFor(UiStyle.classic, isDark).hasPlateDecor, isFalse,
@@ -118,6 +146,13 @@ void main() {
       }
     }
 
+    test('出厂默认底色是跟随系统', () {
+      // 黑白底从「结果」变成「意图」：默认档交给平台亮度，手动档仍然覆盖它
+      expect(container.read(appSettingsNotifierProvider).themeBase,
+          ThemeBase.system,
+          reason: 'R：默认改成固定黑或白要动这条');
+    });
+
     test('出厂默认动画是滚筒走字', () {
       // setUp 只写过 soundEnable：效果类 key 全都不在箱里，走的正是默认值分支
       expect(container.read(appSettingsNotifierProvider).flipAnimStyle,
@@ -133,7 +168,7 @@ void main() {
       await pumpApp(tester);
     }
     testWidgets('选风格后主屏底色真的换成该风格的 bg', (tester) async {
-      await pumpApp(tester);
+      await pick(tester, UiStyle.classic, ThemeBase.dark);
       final scaffoldBefore = tester.widget<Scaffold>(find.byType(Scaffold).first);
       expect(scaffoldBefore.backgroundColor,
           uiTokensFor(UiStyle.classic, true).bg);
@@ -142,6 +177,26 @@ void main() {
       final scaffold = tester.widget<Scaffold>(find.byType(Scaffold).first);
       expect(scaffold.backgroundColor, const Color(0xFF23272E),
           reason: '切到软胶拟物后主屏底色应换成暗版 bg，而不是仍跟着黑白底走');
+    });
+
+    testWidgets('底色选「跟随系统」时，主屏按平台亮度落到黑或白', (tester) async {
+      await pick(tester, UiStyle.classic, ThemeBase.system);
+
+      tester.binding.platformDispatcher.platformBrightnessTestValue =
+          Brightness.dark;
+      addTearDown(tester.binding.platformDispatcher
+          .clearPlatformBrightnessTestValue);
+      await pumpApp(tester);
+      expect(tester.widget<Scaffold>(find.byType(Scaffold).first).backgroundColor,
+          uiTokensFor(UiStyle.classic, true).bg,
+          reason: '系统暗色时该落到暗版 bg');
+
+      tester.binding.platformDispatcher.platformBrightnessTestValue =
+          Brightness.light;
+      await pumpApp(tester);
+      expect(tester.widget<Scaffold>(find.byType(Scaffold).first).backgroundColor,
+          uiTokensFor(UiStyle.classic, false).bg,
+          reason: '切回系统亮色要立刻跟着变，不必重启');
     });
 
     testWidgets('带阴影的风格真的把阴影画到了数字底板上', (tester) async {
@@ -192,7 +247,7 @@ void main() {
           expect(tester.takeException(), isNull,
               reason: '$style / $base 主屏渲染异常');
 
-          await tester.tap(find.byIcon(Icons.menu));
+          await tester.tap(find.byIcon(Icons.checklist));
           for (var i = 0; i < 8; i++) {
             await tester.pump(const Duration(milliseconds: 60));
           }
